@@ -1,9 +1,10 @@
+use crate::error::Result;
 use crate::{Release, VerificationOutcome};
-use rusqlite::{Connection, Result};
-use std::path::Path;
+use rusqlite::Connection;
+use std::path::{Path, PathBuf};
 
 pub fn get_db_connection<P: AsRef<Path>>(path: P) -> Result<Connection> {
-    Connection::open(path)
+    Ok(Connection::open(path)?)
 }
 
 pub fn create_db_schema(conn: &Connection) -> Result<()> {
@@ -71,4 +72,42 @@ pub fn save_release(conn: &Connection, release: &Release) -> Result<()> {
         }
     }
     Ok(())
+}
+
+pub fn get_releases(conn: &Connection) -> Result<Vec<Release>> {
+    let mut statement = conn.prepare(
+        "SELECT id, date, name, file_count, size, torrent_url, verification_outcome FROM releases",
+    )?;
+    let mut rows = statement.query([])?;
+    let mut releases = Vec::new();
+
+    while let Some(row) = rows.next()? {
+        let mut release = Release::from_row(row)?;
+        if release.verification_outcome.is_none() {
+            let mut missing_files = Vec::new();
+            let mut corrupted_files = Vec::new();
+            let mut files_statement = conn
+                .prepare("SELECT file_path, status FROM incomplete_files WHERE release_id = ?1")?;
+            let files_iter = files_statement.query_map([&release.id], |row| {
+                let file_path: String = row.get(0)?;
+                let status: String = row.get(1)?;
+                Ok((file_path, status))
+            })?;
+            for file_result in files_iter {
+                let (file_path, status) = file_result?;
+                let path = PathBuf::from(file_path);
+                if status == "MISSING" {
+                    missing_files.push(path);
+                } else if status == "CORRUPTED" {
+                    corrupted_files.push(path.to_string_lossy().into_owned());
+                }
+            }
+            release.verification_outcome = Some(VerificationOutcome::Incomplete(
+                missing_files,
+                corrupted_files,
+            ));
+        }
+        releases.push(release);
+    }
+    Ok(releases)
 }

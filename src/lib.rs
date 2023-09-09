@@ -6,6 +6,7 @@ use crate::error::{Error, Result};
 use crate::release_data::RELEASE_DATA;
 use indicatif::{ProgressBar, ProgressStyle};
 use lava_torrent::torrent::v1::Torrent;
+use rusqlite::Row;
 use sha1::{Digest, Sha1};
 use std::collections::HashSet;
 use std::fmt;
@@ -83,6 +84,33 @@ impl Release {
         hasher.update(name.as_bytes());
         let hash = hasher.finalize();
         format!("{:x}", hash)
+    }
+
+    pub fn from_row(row: &Row) -> Result<Release> {
+        let id: String = row.get(0)?;
+        let date: String = row.get(1)?;
+        let name: String = row.get(2)?;
+        let file_count: Option<usize> = row.get(3)?;
+        let size: Option<u64> = row.get(4)?;
+        let torrent_url: String = row.get(5)?;
+        let torrent_url = Url::parse(&torrent_url).unwrap();
+        let verification_outcome: String = row.get(6)?;
+        let verification_outcome = match verification_outcome.as_str() {
+            "VERIFIED" => Some(VerificationOutcome::Verified),
+            "NO TORRENT" => Some(VerificationOutcome::TorrentMissing),
+            "MISSING" => Some(VerificationOutcome::AllFilesMissing),
+            "INCOMPLETE" => None, // This will be filled in later.
+            _ => None,
+        };
+        Ok(Release {
+            id,
+            date,
+            name,
+            file_count,
+            size,
+            torrent_url,
+            verification_outcome,
+        })
     }
 
     pub fn init_releases(torrents_path: PathBuf) -> Result<Vec<Release>> {

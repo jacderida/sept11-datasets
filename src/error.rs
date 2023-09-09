@@ -14,6 +14,8 @@ pub enum Error {
     #[error("Cannot parse path segments from torrent URL")]
     PathSegmentsParseError,
     #[error(transparent)]
+    SqlError(#[from] rusqlite::Error),
+    #[error(transparent)]
     TemplateError(#[from] indicatif::style::TemplateError),
     #[error("Cannot retrieve torrent files")]
     TorrentFilesError,

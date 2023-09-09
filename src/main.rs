@@ -19,6 +19,7 @@ enum Commands {
         #[arg(short = 'n', long)]
         torrents_path: PathBuf,
     },
+    Ls {},
 }
 
 fn main() -> Result<()> {
@@ -32,8 +33,9 @@ fn main() -> Result<()> {
             for release in releases.iter() {
                 println!("{release}");
             }
+
             println!("Saving releases to new database...");
-            let db_path = get_data_directory()?.join("releases.db");
+            let db_path = get_database_path()?;
             let conn = get_db_connection(&db_path)?;
             create_db_schema(&conn)?;
             for release in releases.iter() {
@@ -43,16 +45,27 @@ fn main() -> Result<()> {
             println!("Done");
             Ok(())
         }
+        Some(Commands::Ls {}) => {
+            let db_path = get_database_path()?;
+            let conn = get_db_connection(&db_path)?;
+            let releases = get_releases(&conn)?;
+            let _ = conn.close();
+            for release in releases.iter() {
+                println!("{}: {}", release.id, release.name);
+            }
+            Ok(())
+        }
         None => Ok(()),
     }
 }
 
-fn get_data_directory() -> Result<PathBuf> {
+fn get_database_path() -> Result<PathBuf> {
     let path = dirs_next::data_dir()
         .ok_or_else(|| eyre!("Could not retrieve data directory"))?
         .join("sept11-datasets");
     if !path.exists() {
         std::fs::create_dir_all(path.clone())?;
     }
-    Ok(path)
+    let db_path = path.join("releases.db");
+    Ok(db_path)
 }
