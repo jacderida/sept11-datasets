@@ -1,13 +1,16 @@
+pub mod db;
 pub mod error;
+pub mod release_data;
 
 use crate::error::{Error, Result};
+use crate::release_data::RELEASE_DATA;
 use indicatif::{ProgressBar, ProgressStyle};
 use lava_torrent::torrent::v1::Torrent;
 use sha1::{Digest, Sha1};
 use std::collections::HashSet;
 use std::fmt;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Seek};
+use std::io::{Read, Seek};
 use std::path::PathBuf;
 use url::Url;
 
@@ -30,59 +33,69 @@ impl fmt::Display for VerificationOutcome {
 }
 
 pub struct Release {
+    pub id: String,
     pub date: String,
     pub name: String,
     pub file_count: Option<usize>,
     pub size: Option<u64>,
     pub torrent_url: Url,
-    pub torrent_path: Option<PathBuf>,
+    pub verification_outcome: Option<VerificationOutcome>,
 }
 
 impl fmt::Display for Release {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.torrent_path.is_none() {
-            write!(f, "{}: {} -- NO TORRENT", self.date, self.name)
-        } else {
-            write!(
-                f,
-                "{}: {} ({} files, {})",
-                self.date,
-                self.name,
-                self.file_count
-                    .map_or("None".to_string(), |n| n.to_string()),
-                self.size
-                    .map_or("None".to_string(), |s| self.bytes_to_human_readable(s))
-            )
-        }
+        write!(
+            f,
+            "{}: {} ({} files, {})",
+            self.date,
+            self.name,
+            self.file_count
+                .map_or("None".to_string(), |n| n.to_string()),
+            self.size
+                .map_or("None".to_string(), |s| self.bytes_to_human_readable(s))
+        )
     }
 }
 
 impl Release {
-    pub fn init_from_table(table_path: PathBuf, torrents_path: PathBuf) -> Result<Vec<Release>> {
-        let file = File::open(table_path)?;
-        let reader = BufReader::new(file);
+    pub fn new(
+        date: String,
+        name: String,
+        file_count: Option<usize>,
+        size: Option<u64>,
+        torrent_url: Url,
+    ) -> Self {
+        let id = Release::generate_id(&date, &name);
+        Self {
+            id,
+            date,
+            name,
+            file_count,
+            size,
+            torrent_url,
+            verification_outcome: None,
+        }
+    }
+
+    pub fn generate_id(date: &str, name: &str) -> String {
+        let mut hasher = Sha1::new();
+        hasher.update(date.as_bytes());
+        hasher.update(name.as_bytes());
+        let hash = hasher.finalize();
+        format!("{:x}", hash)
+    }
+
+    pub fn init_releases(torrents_path: PathBuf) -> Result<Vec<Release>> {
         let mut releases = Vec::new();
+        for item in RELEASE_DATA.iter() {
+            let date = item.0.to_string();
+            let torrent_url = item.1.to_string();
+            let name = item.2.to_string();
 
-        for line in reader.lines() {
-            let line = line?;
-            let parts: Vec<&str> = line.split(';').collect();
-            if parts.len() != 3 {
-                return Err(Error::MalformedReleaseTable);
-            }
-
-            let date = parts[0].trim().to_string();
-            let torrent_url = parts[1].trim();
-            let name = parts[2].trim().to_string();
-            let url = Url::parse(torrent_url)?;
-            let file_name = url
-                .path_segments()
-                .ok_or(Error::PathSegmentsParseError)?
-                .last()
-                .ok_or(Error::PathSegmentsParseError)?;
-
-            let mut torrent_path = torrents_path.clone();
-            torrent_path.push(file_name);
-            let (torrent_path, file_count, size) = if torrent_path.exists() {
+            let url = Url::parse(&torrent_url)?;
+            let file_name = Self::get_file_name_from_url(&url)?;
+            let torrent_path = torrents_path.join(file_name);
+            let (file_count, size) = if torrent_path.exists() {
                 match Torrent::read_from_file(torrent_path.clone()) {
                     Ok(torrent) => {
                         let files = torrent.files.ok_or_else(|| Error::TorrentFilesError)?;
@@ -90,35 +103,32 @@ impl Release {
                         for file in files.iter() {
                             size += file.length;
                         }
-                        (Some(torrent_path), Some(files.len()), Some(size as u64))
+                        (Some(files.len()), Some(size as u64))
                     }
-                    Err(_) => (None, None, None),
+                    Err(_) => (None, None),
                 }
             } else {
-                (None, None, None)
+                (None, None)
             };
-
-            releases.push(Release {
-                date,
-                name,
-                file_count,
-                size,
-                torrent_url: url,
-                torrent_path,
-            });
+            releases.push(Release::new(date, name, file_count, size, url));
         }
         Ok(releases)
     }
 
-    pub fn verify(&self, target_directory: PathBuf) -> Result<VerificationOutcome> {
+    pub fn verify(
+        &self,
+        torrents_path: PathBuf,
+        target_directory: PathBuf,
+    ) -> Result<VerificationOutcome> {
         let mut mismatched_files = HashSet::new();
         let mut missing_files = HashSet::new();
 
-        if self.torrent_path.is_none() {
+        if self.file_count.is_none() {
             return Ok(VerificationOutcome::TorrentMissing);
         }
 
-        let torrent = Torrent::read_from_file(self.torrent_path.as_ref().unwrap())?;
+        let torrent_path = torrents_path.join(Self::get_file_name_from_url(&self.torrent_url)?);
+        let torrent = Torrent::read_from_file(torrent_path)?;
         let piece_length = torrent.piece_length;
         let num_pieces = torrent.pieces.len();
         let files = torrent.files.ok_or_else(|| Error::TorrentFilesError)?;
@@ -226,5 +236,14 @@ impl Release {
         } else {
             format!("{:.2} MB", bytes as f64 / MB as f64)
         }
+    }
+
+    fn get_file_name_from_url(url: &Url) -> Result<String> {
+        let file_name = url
+            .path_segments()
+            .ok_or(Error::PathSegmentsParseError)?
+            .last()
+            .ok_or(Error::PathSegmentsParseError)?;
+        Ok(file_name.to_string())
     }
 }

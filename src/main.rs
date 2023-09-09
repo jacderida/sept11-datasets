@@ -1,33 +1,58 @@
+use clap::{Parser, Subcommand};
 use color_eyre::{eyre::eyre, Result};
+use sept11_datasets::db::*;
 use sept11_datasets::Release;
 use std::path::PathBuf;
+
+#[derive(Parser, Debug)]
+#[clap(name = "sept11-datasets", version = env!("CARGO_PKG_VERSION"))]
+struct Opt {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Build the release database from the torrent files
+    Init {
+        /// Path to the directory containing the release torrent files
+        #[arg(short = 'n', long)]
+        torrents_path: PathBuf,
+    },
+}
 
 fn main() -> Result<()> {
     color_eyre::install()?;
 
-    println!("Reading releases. This can take several seconds...");
-    let releases = Release::init_from_table(
-        PathBuf::from("resources").join("release-table"),
-        PathBuf::from("resources").join("torrents"),
-    )?;
-    for release in releases.iter() {
-        println!("{release}");
-    }
-
-    let target_directory = PathBuf::from("/mnt/sept11-archive/9-11-archive/911datasets.org");
-    let release = releases
-        .iter()
-        .find(|r| r.name == "NIST FOIA 09-42 - ic911studies.org - Release 28")
-        .ok_or_else(|| eyre!("Could not find release"))?;
-    let outcome = release.verify(target_directory)?;
-    println!("{outcome}");
-    match outcome {
-        sept11_datasets::VerificationOutcome::Incomplete(missing_files, mismatched_files) => {
-            println!("Missing files: {:#?}", missing_files);
-            println!("Mismatched files: {:#?}", mismatched_files);
+    let opt = Opt::parse();
+    match opt.command {
+        Some(Commands::Init { torrents_path }) => {
+            println!("Building release database...");
+            let releases = Release::init_releases(torrents_path)?;
+            for release in releases.iter() {
+                println!("{release}");
+            }
+            println!("Saving releases to new database...");
+            let db_path = get_data_directory()?.join("releases.db");
+            let conn = get_db_connection(&db_path)?;
+            create_db_schema(&conn)?;
+            for release in releases.iter() {
+                save_release(&conn, &release)?;
+            }
+            let _ = conn.close();
+            println!("Done");
+            Ok(())
         }
-        _ => {}
+        None => Ok(()),
     }
+}
 
-    Ok(())
+fn get_data_directory() -> Result<PathBuf> {
+    let path = dirs_next::data_dir()
+        .ok_or_else(|| eyre!("Could not retrieve data directory"))?
+        .join("sept11-datasets");
+    if !path.exists() {
+        std::fs::create_dir_all(path.clone())?;
+    }
+    Ok(path)
 }
