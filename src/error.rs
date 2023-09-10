@@ -13,6 +13,8 @@ pub enum Error {
     MalformedReleaseTable,
     #[error("Cannot parse path segments from torrent URL")]
     PathSegmentsParseError,
+    #[error("There is no release with ID {0}")]
+    ReleaseNotFound(String),
     #[error(transparent)]
     SqlError(#[from] rusqlite::Error),
     #[error(transparent)]

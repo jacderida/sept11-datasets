@@ -15,6 +15,7 @@ use std::io::{Read, Seek};
 use std::path::PathBuf;
 use url::Url;
 
+#[derive(Clone)]
 pub enum VerificationOutcome {
     Verified,
     TorrentMissing,
@@ -86,7 +87,11 @@ impl Release {
         format!("{:x}", hash)
     }
 
-    pub fn from_row(row: &Row) -> Result<Release> {
+    pub fn from_row(
+        row: &Row,
+        missing_files: &Vec<PathBuf>,
+        corrupt_files: &Vec<String>,
+    ) -> Result<Release> {
         let id: String = row.get(0)?;
         let date: String = row.get(1)?;
         let name: String = row.get(2)?;
@@ -99,7 +104,11 @@ impl Release {
             "VERIFIED" => Some(VerificationOutcome::Verified),
             "NO TORRENT" => Some(VerificationOutcome::TorrentMissing),
             "MISSING" => Some(VerificationOutcome::AllFilesMissing),
-            "INCOMPLETE" => None, // This will be filled in later.
+            "INCOMPLETE" => Some(VerificationOutcome::Incomplete(
+                missing_files.clone(),
+                corrupt_files.clone(),
+            )),
+            "UNKNOWN" => None,
             _ => None,
         };
         Ok(Release {
@@ -145,8 +154,8 @@ impl Release {
 
     pub fn verify(
         &self,
-        torrents_path: PathBuf,
-        target_directory: PathBuf,
+        torrents_path: &PathBuf,
+        target_directory: &PathBuf,
     ) -> Result<VerificationOutcome> {
         let mut mismatched_files = HashSet::new();
         let mut missing_files = HashSet::new();
@@ -161,7 +170,6 @@ impl Release {
         let num_pieces = torrent.pieces.len();
         let files = torrent.files.ok_or_else(|| Error::TorrentFilesError)?;
 
-        println!("Verifying release {}", self.name);
         println!("The torrent has {} pieces to verify", num_pieces);
         let bar = ProgressBar::new(num_pieces as u64);
         bar.set_style(

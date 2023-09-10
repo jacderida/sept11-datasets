@@ -1,6 +1,6 @@
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::{Release, VerificationOutcome};
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
 
 pub fn get_db_connection<P: AsRef<Path>>(path: P) -> Result<Connection> {
@@ -74,6 +74,38 @@ pub fn save_release(conn: &Connection, release: &Release) -> Result<()> {
     Ok(())
 }
 
+pub fn save_verification_result(conn: &mut Connection, release: &Release) -> Result<()> {
+    let tx = conn.transaction()?;
+    let outcome = release.verification_outcome.as_ref().unwrap();
+    let outcome_str = match outcome {
+        VerificationOutcome::Verified => "VERIFIED",
+        VerificationOutcome::TorrentMissing => "NO TORRENT",
+        VerificationOutcome::Incomplete(_, _) => "INCOMPLETE",
+        VerificationOutcome::AllFilesMissing => "MISSING",
+    };
+    tx.execute(
+        "UPDATE releases SET verification_outcome = ?1 WHERE id = ?2",
+        params![outcome_str, release.id],
+    )?;
+
+    if let VerificationOutcome::Incomplete(missing_files, corrupted_files) = outcome {
+        for missing in missing_files.iter() {
+            tx.execute(
+                "INSERT INTO incomplete_files (release_id, file_path, status) VALUES (?1, ?2, ?3)",
+                params![release.id, missing.to_str().unwrap(), "MISSING"],
+            )?;
+        }
+        for corrupted in corrupted_files.iter() {
+            tx.execute(
+                "INSERT INTO incomplete_files (release_id, file_path, status) VALUES (?1, ?2, ?3)",
+                params![release.id, corrupted, "CORRUPTED"],
+            )?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 pub fn get_releases(conn: &Connection) -> Result<Vec<Release>> {
     let mut statement = conn.prepare(
         "SELECT id, date, name, file_count, size, torrent_url, verification_outcome FROM releases",
@@ -82,32 +114,51 @@ pub fn get_releases(conn: &Connection) -> Result<Vec<Release>> {
     let mut releases = Vec::new();
 
     while let Some(row) = rows.next()? {
-        let mut release = Release::from_row(row)?;
-        if release.verification_outcome.is_none() {
-            let mut missing_files = Vec::new();
-            let mut corrupted_files = Vec::new();
-            let mut files_statement = conn
-                .prepare("SELECT file_path, status FROM incomplete_files WHERE release_id = ?1")?;
-            let files_iter = files_statement.query_map([&release.id], |row| {
-                let file_path: String = row.get(0)?;
-                let status: String = row.get(1)?;
-                Ok((file_path, status))
-            })?;
-            for file_result in files_iter {
-                let (file_path, status) = file_result?;
-                let path = PathBuf::from(file_path);
-                if status == "MISSING" {
-                    missing_files.push(path);
-                } else if status == "CORRUPTED" {
-                    corrupted_files.push(path.to_string_lossy().into_owned());
-                }
-            }
-            release.verification_outcome = Some(VerificationOutcome::Incomplete(
-                missing_files,
-                corrupted_files,
-            ));
-        }
+        let release_id: String = row.get(0)?;
+        let (missing_files, corrupted_files) =
+            get_incomplete_verification_data(&conn, &release_id)?;
+        let release = Release::from_row(row, &missing_files, &corrupted_files)?;
         releases.push(release);
     }
     Ok(releases)
+}
+
+pub fn get_release_by_id(conn: &Connection, release_id: &str) -> Result<Release> {
+    let mut statement = conn.prepare("SELECT * FROM releases WHERE id = ?1")?;
+    let mut rows = statement.query(params![release_id])?;
+
+    if let Some(row) = rows.next()? {
+        let (missing_files, corrupted_files) =
+            get_incomplete_verification_data(&conn, &release_id)?;
+        let release = Release::from_row(&row, &missing_files, &corrupted_files)?;
+        return Ok(release);
+    }
+    Err(Error::ReleaseNotFound(release_id.to_string()))
+}
+
+fn get_incomplete_verification_data(
+    conn: &Connection,
+    release_id: &str,
+) -> Result<(Vec<PathBuf>, Vec<String>)> {
+    // If the verification result was anything other than INCOMPLETE, the returned lists will be
+    // empty.
+    let mut missing_files = Vec::new();
+    let mut corrupted_files = Vec::new();
+    let mut files_statement =
+        conn.prepare("SELECT file_path, status FROM incomplete_files WHERE release_id = ?1")?;
+    let files_iter = files_statement.query_map([&release_id], |row| {
+        let file_path: String = row.get(0)?;
+        let status: String = row.get(1)?;
+        Ok((file_path, status))
+    })?;
+    for file_result in files_iter {
+        let (file_path, status) = file_result?;
+        let path = PathBuf::from(file_path);
+        if status == "MISSING" {
+            missing_files.push(path);
+        } else if status == "CORRUPTED" {
+            corrupted_files.push(path.to_string_lossy().into_owned());
+        }
+    }
+    Ok((missing_files.clone(), corrupted_files.clone()))
 }
