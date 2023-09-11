@@ -20,7 +20,11 @@ enum Commands {
         torrents_path: PathBuf,
     },
     // Print the releases
-    Ls {},
+    Ls {
+        /// Set to print the directory of the release rather than the name
+        #[arg(long)]
+        directory: bool,
+    },
     // Verify releases against their corresponding torrents
     Verify {
         /// The ID of the release to verify.
@@ -60,13 +64,21 @@ fn main() -> Result<()> {
             println!("Done");
             Ok(())
         }
-        Some(Commands::Ls {}) => {
+        Some(Commands::Ls { directory }) => {
             let db_path = get_database_path()?;
             let conn = get_db_connection(&db_path)?;
             let releases = get_releases(&conn)?;
             let _ = conn.close();
             for release in releases.iter() {
-                println!("{}: {}", release.id, release.name);
+                if directory {
+                    println!(
+                        "{}: {}",
+                        release.id,
+                        release.directory.clone().unwrap_or("None".to_string())
+                    )
+                } else {
+                    println!("{}: {}", release.id, release.name);
+                }
             }
             Ok(())
         }

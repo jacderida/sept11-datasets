@@ -13,6 +13,7 @@ pub fn create_db_schema(conn: &Connection) -> Result<()> {
             id TEXT PRIMARY KEY NOT NULL,
             date TEXT NOT NULL,
             name TEXT NOT NULL,
+            directory TEXT,
             file_count INTEGER,
             size INTEGER,
             torrent_url TEXT NOT NULL,
@@ -44,11 +45,13 @@ pub fn save_release(conn: &Connection, release: &Release) -> Result<()> {
         None => "UNKNOWN".to_string(),
     };
     conn.execute(
-        "INSERT INTO releases (id, date, name, file_count, size, torrent_url, verification_outcome) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO releases (id, date, name, directory, file_count, size, torrent_url, verification_outcome) \
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         &[
             &release.id as &dyn rusqlite::ToSql,
             &release.date,
             &release.name,
+            &release.directory,
             &file_count,
             &size,
             &release.torrent_url.to_string(),
@@ -108,7 +111,7 @@ pub fn save_verification_result(conn: &mut Connection, release: &Release) -> Res
 
 pub fn get_releases(conn: &Connection) -> Result<Vec<Release>> {
     let mut statement = conn.prepare(
-        "SELECT id, date, name, file_count, size, torrent_url, verification_outcome FROM releases",
+        "SELECT id, date, name, directory, file_count, size, torrent_url, verification_outcome FROM releases",
     )?;
     let mut rows = statement.query([])?;
     let mut releases = Vec::new();

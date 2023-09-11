@@ -38,6 +38,7 @@ pub struct Release {
     pub id: String,
     pub date: String,
     pub name: String,
+    pub directory: Option<String>,
     pub file_count: Option<usize>,
     pub size: Option<u64>,
     pub torrent_url: Url,
@@ -63,6 +64,7 @@ impl Release {
     pub fn new(
         date: String,
         name: String,
+        directory: Option<String>,
         file_count: Option<usize>,
         size: Option<u64>,
         torrent_url: Url,
@@ -72,6 +74,7 @@ impl Release {
             id,
             date,
             name,
+            directory,
             file_count,
             size,
             torrent_url,
@@ -95,11 +98,12 @@ impl Release {
         let id: String = row.get(0)?;
         let date: String = row.get(1)?;
         let name: String = row.get(2)?;
-        let file_count: Option<usize> = row.get(3)?;
-        let size: Option<u64> = row.get(4)?;
-        let torrent_url: String = row.get(5)?;
+        let directory: Option<String> = row.get(3)?;
+        let file_count: Option<usize> = row.get(4)?;
+        let size: Option<u64> = row.get(5)?;
+        let torrent_url: String = row.get(6)?;
         let torrent_url = Url::parse(&torrent_url).unwrap();
-        let verification_outcome: String = row.get(6)?;
+        let verification_outcome: String = row.get(7)?;
         let verification_outcome = match verification_outcome.as_str() {
             "VERIFIED" => Some(VerificationOutcome::Verified),
             "NO TORRENT" => Some(VerificationOutcome::TorrentMissing),
@@ -115,6 +119,7 @@ impl Release {
             id,
             date,
             name,
+            directory,
             file_count,
             size,
             torrent_url,
@@ -132,22 +137,38 @@ impl Release {
             let url = Url::parse(&torrent_url)?;
             let file_name = Self::get_file_name_from_url(&url)?;
             let torrent_path = torrents_path.join(file_name);
-            let (file_count, size) = if torrent_path.exists() {
+            let (directory, file_count, size) = if torrent_path.exists() {
                 match Torrent::read_from_file(torrent_path.clone()) {
                     Ok(torrent) => {
                         let files = torrent.files.ok_or_else(|| Error::TorrentFilesError)?;
+                        let first_file = &files[0];
+                        // We want to store the directory below '911datasets.org'.
+                        let directory: String = {
+                            let mut ancestors = first_file.path.ancestors();
+                            let mut second_to_last = None;
+                            let mut last = ancestors.next();
+                            while let Some(current) = ancestors.next() {
+                                second_to_last = last;
+                                last = Some(current);
+                            }
+                            second_to_last
+                                .map(|p| p.to_path_buf())
+                                .ok_or_else(|| Error::ReleaseDirectoryNotObtained)?
+                                .to_string_lossy()
+                                .to_string()
+                        };
                         let mut size = 0;
                         for file in files.iter() {
                             size += file.length;
                         }
-                        (Some(files.len()), Some(size as u64))
+                        (Some(directory), Some(files.len()), Some(size as u64))
                     }
-                    Err(_) => (None, None),
+                    Err(_) => (None, None, None),
                 }
             } else {
-                (None, None)
+                (None, None, None)
             };
-            releases.push(Release::new(date, name, file_count, size, url));
+            releases.push(Release::new(date, name, directory, file_count, size, url));
         }
         Ok(releases)
     }

@@ -13,6 +13,8 @@ pub enum Error {
     MalformedReleaseTable,
     #[error("Cannot parse path segments from torrent URL")]
     PathSegmentsParseError,
+    #[error("The top level directory for the release could not be obtained")]
+    ReleaseDirectoryNotObtained,
     #[error("There is no release with ID {0}")]
     ReleaseNotFound(String),
     #[error(transparent)]
