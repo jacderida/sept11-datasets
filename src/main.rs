@@ -25,6 +25,14 @@ enum Commands {
         #[arg(long)]
         directory: bool,
     },
+    // Print the current verification status releases
+    Status {
+        /// Display the status of a particular release.
+        ///
+        /// If not supplied, all releases will be iterated.
+        #[arg(long)]
+        release_id: Option<String>,
+    },
     // Verify releases against their corresponding torrents
     Verify {
         /// The ID of the release to verify.
@@ -79,6 +87,18 @@ fn main() -> Result<()> {
                 } else {
                     println!("{}: {}", release.id, release.name);
                 }
+            }
+            Ok(())
+        }
+        Some(Commands::Status { release_id }) => {
+            let db_path = get_database_path()?;
+            let conn = get_db_connection(&db_path)?;
+            if let Some(id) = release_id {
+                let release = get_release_by_id(&conn, &id)?;
+                release.print_verification_status()?;
+            } else {
+                let releases = get_releases(&conn)?;
+                Release::print_status_table(&releases)?;
             }
             Ok(())
         }

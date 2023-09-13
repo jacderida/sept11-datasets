@@ -2,9 +2,9 @@
 
 The now defunct website 911datasets.org made a series of 'releases' available with all sorts of data
 related to the terrorist attacks of September 11, 2001. I think at least some people from the '9/11
-truth' movement were involved with this site, but nonetheless the data it made available is very
-valuable for research related to this subject. I want to make it completely clear: I am interested
-in 9/11 as a historical event; I don't take seriously any stupid conspiracy theories.
+truth' movement were involved with this site, but nonetheless the data is very valuable for
+research. I want to make it completely clear: I am interested in 9/11 as a historical event; I don't
+take seriously any stupid conspiracy theories.
 
 This repository provides some tools for obtaining and verifying the data sets.
 
@@ -58,11 +58,11 @@ cargo run -- ls # obtain the ID of the release
 cargo run -- verify --id <release-id> --target-path <releases-directory> --torrents-path resources/torrents
 ```
 
-## Links
+## Useful Links
 
-This section contains some links for obtaining the releases.
+The archived 911datasets.org: [link](https://web.archive.org/web/20190111000139/http://911datasets.org/index.php/Main_Page). Still useful for browsing and obtaining the torrent content.
 
-The archived 911datasets.org: [link](https://web.archive.org/web/20190111000139/http://911datasets.org/index.php/Main_Page)
+[A Danish site](https://www.911facts.dk/?page_id=9268&lang=en) that invites you to contact them if you need a release. Looks like a dubious 'truther' thing, but perhaps it could potentially be useful for obtaining missing stuff.
 
 Many of the non-NIST releases: [link](https://archive.org/details/911datasets)
 

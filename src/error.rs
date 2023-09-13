@@ -25,4 +25,6 @@ pub enum Error {
     TorrentFilesError,
     #[error(transparent)]
     UrlParseError(#[from] url::ParseError),
+    #[error("Verification report error: {0}")]
+    VerificationReportError(String),
 }

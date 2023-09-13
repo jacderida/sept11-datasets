@@ -4,8 +4,10 @@ pub mod release_data;
 
 use crate::error::{Error, Result};
 use crate::release_data::RELEASE_DATA;
+use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use lava_torrent::torrent::v1::Torrent;
+use prettytable::{color, Attr, Cell, Row as TableRow, Table};
 use rusqlite::Row;
 use sha1::{Digest, Sha1};
 use std::collections::HashSet;
@@ -14,6 +16,8 @@ use std::fs::File;
 use std::io::{Read, Seek};
 use std::path::PathBuf;
 use url::Url;
+
+const WRAP_LENGTH: usize = 72;
 
 #[derive(Clone)]
 pub enum VerificationOutcome {
@@ -80,6 +84,104 @@ impl Release {
             torrent_url,
             verification_outcome: None,
         }
+    }
+
+    pub fn print_status_table(releases: &Vec<Release>) -> Result<()> {
+        let mut table = Table::new();
+        for release in releases.iter() {
+            let wrapped_title = textwrap::wrap(&release.name, WRAP_LENGTH).join("\n");
+            let outcome_cell = match release.verification_outcome.as_ref() {
+                Some(outcome) => match outcome {
+                    VerificationOutcome::Verified => Cell::new("VERIFIED")
+                        .with_style(Attr::Bold)
+                        .with_style(Attr::ForegroundColor(color::BRIGHT_GREEN)),
+                    VerificationOutcome::TorrentMissing => Cell::new("TORRENT MISSING")
+                        .with_style(Attr::Bold)
+                        .with_style(Attr::ForegroundColor(color::YELLOW)),
+                    VerificationOutcome::Incomplete(_, _) => Cell::new("INCOMPLETE")
+                        .with_style(Attr::Bold)
+                        .with_style(Attr::ForegroundColor(color::CYAN)),
+                    VerificationOutcome::AllFilesMissing => Cell::new("MISSING")
+                        .with_style(Attr::Bold)
+                        .with_style(Attr::ForegroundColor(color::RED)),
+                },
+                None => Cell::new("UNKNOWN")
+                    .with_style(Attr::Bold)
+                    .with_style(Attr::ForegroundColor(color::RED)),
+            };
+            table.add_row(TableRow::new(vec![
+                Cell::new(&release.date),
+                Cell::new(&wrapped_title),
+                outcome_cell,
+            ]));
+        }
+
+        table.printstd();
+        Ok(())
+    }
+
+    pub fn get_verification_outcome(&self) -> String {
+        if let Some(outcome) = self.verification_outcome.as_ref() {
+            outcome.to_string()
+        } else {
+            "UNKNOWN".to_string()
+        }
+    }
+
+    pub fn print_verification_status(&self) -> Result<()> {
+        println!("{}", self.name);
+        match &self.verification_outcome {
+            Some(VerificationOutcome::Verified) => {
+                let file_count = self.file_count.ok_or_else(|| {
+                    Error::VerificationReportError(
+                        "a verified release must have a file count".to_string(),
+                    )
+                })?;
+                println!("Status: {}", "VERIFIED".bright_green());
+                println!(
+                    "All {} files were verified against the torrent piece hashes",
+                    file_count
+                );
+            }
+            Some(VerificationOutcome::Incomplete(missing_files, corrupt_files)) => {
+                println!("Status: {}", "VERIFIED".cyan());
+                let file_count = self.file_count.ok_or_else(|| {
+                    Error::VerificationReportError(
+                        "an incomplete release must have a file count".to_string(),
+                    )
+                })?;
+                if missing_files.len() > 0 {
+                    println!("{missing_files:#?}");
+                    println!(
+                        "{} of {} files were missing from this release",
+                        missing_files.len(),
+                        file_count,
+                    );
+                }
+                if corrupt_files.len() > 0 {
+                    println!("{corrupt_files:#?}");
+                    println!(
+                        "{} of {} files are corrupted for this release",
+                        missing_files.len(),
+                        file_count,
+                    );
+                }
+            }
+            Some(VerificationOutcome::TorrentMissing) => {
+                println!("Status: {}", "TORRENT MISSING".yellow());
+            }
+            Some(VerificationOutcome::AllFilesMissing) => {
+                let file_count = self.file_count.ok_or_else(|| {
+                    Error::VerificationReportError(
+                        "an incomplete release must have a file count".to_string(),
+                    )
+                })?;
+                println!("Status: {}", "MISSING".red());
+                println!("All {} files were missing for this release", file_count);
+            }
+            None => println!("Status: {}", "UNKNOWN".red()),
+        }
+        Ok(())
     }
 
     pub fn generate_id(date: &str, name: &str) -> String {
