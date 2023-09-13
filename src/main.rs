@@ -25,6 +25,14 @@ enum Commands {
         #[arg(long)]
         directory: bool,
     },
+    // Reset verification result for missing releases.
+    Reset {
+        /// Only reset the release with the specified ID.
+        ///
+        /// If not supplied, all missing releases will be reset.
+        #[arg(long)]
+        release_id: Option<String>,
+    },
     // Print the current verification status releases
     Status {
         /// Display the status of a particular release.
@@ -66,7 +74,7 @@ fn main() -> Result<()> {
             let conn = get_db_connection(&db_path)?;
             create_db_schema(&conn)?;
             for release in releases.iter() {
-                save_release(&conn, &release)?;
+                save_new_release(&conn, &release)?;
             }
             let _ = conn.close();
             println!("Done");
@@ -86,6 +94,20 @@ fn main() -> Result<()> {
                     )
                 } else {
                     println!("{}: {}", release.id, release.name);
+                }
+            }
+            Ok(())
+        }
+        Some(Commands::Reset { release_id }) => {
+            let db_path = get_database_path()?;
+            let conn = get_db_connection(&db_path)?;
+            if let Some(id) = release_id {
+                reset_verification_result(&conn, &id)?;
+            } else {
+                let releases = get_missing_releases(&conn)?;
+                for release in releases.iter() {
+                    reset_verification_result(&conn, &release.id)?;
+                    println!("Set {} back to UNKNOWN status", release.name);
                 }
             }
             Ok(())

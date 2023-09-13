@@ -6,8 +6,6 @@ truth' movement were involved with this site, but nonetheless the data is very v
 research. I want to make it completely clear: I am interested in 9/11 as a historical event; I don't
 take seriously any stupid conspiracy theories.
 
-This repository provides some tools for obtaining and verifying the data sets.
-
 Each release came in the form of a torrent. The original torrents now have either very little
 activity, or none at all. However, some of the material is still available at various different
 places. The intention of this repository is to provide tools to collect and verify the data.

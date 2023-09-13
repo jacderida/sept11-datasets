@@ -34,7 +34,7 @@ pub fn create_db_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-pub fn save_release(conn: &Connection, release: &Release) -> Result<()> {
+pub fn save_new_release(conn: &Connection, release: &Release) -> Result<()> {
     let file_count: Option<i64> = release.file_count.map(|v| v as i64);
     let size: Option<i64> = release.size.map(|v| v as i64);
     let verification_status = match &release.verification_outcome {
@@ -109,9 +109,35 @@ pub fn save_verification_result(conn: &mut Connection, release: &Release) -> Res
     Ok(())
 }
 
+pub fn reset_verification_result(conn: &Connection, release_id: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE releases SET verification_outcome = 'UNKNOWN' WHERE id = ?1",
+        params![release_id],
+    )?;
+    Ok(())
+}
+
 pub fn get_releases(conn: &Connection) -> Result<Vec<Release>> {
     let mut statement = conn.prepare(
         "SELECT id, date, name, directory, file_count, size, torrent_url, verification_outcome FROM releases",
+    )?;
+    let mut rows = statement.query([])?;
+    let mut releases = Vec::new();
+
+    while let Some(row) = rows.next()? {
+        let release_id: String = row.get(0)?;
+        let (missing_files, corrupted_files) =
+            get_incomplete_verification_data(&conn, &release_id)?;
+        let release = Release::from_row(row, &missing_files, &corrupted_files)?;
+        releases.push(release);
+    }
+    Ok(releases)
+}
+
+pub fn get_missing_releases(conn: &Connection) -> Result<Vec<Release>> {
+    let mut statement = conn.prepare(
+        "SELECT id, date, name, directory, file_count, size, torrent_url, verification_outcome FROM \
+            releases WHERE verification_outcome = 'MISSING'",
     )?;
     let mut rows = statement.query([])?;
     let mut releases = Vec::new();
