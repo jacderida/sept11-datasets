@@ -293,6 +293,20 @@ impl Release {
         let num_pieces = torrent.pieces.len();
         let files = torrent.files.ok_or_else(|| Error::TorrentFilesError)?;
 
+        // Check for a 'MISSING' result first. This is quicker than going through all the pieces.
+        println!("Checking first to see if all files are missing...");
+        let mut missing_count = 0;
+        for file in files.iter() {
+            let path = target_directory.join(file.path.clone());
+            if !path.exists() {
+                missing_count += 1;
+            }
+        }
+        if missing_count == files.len() {
+            return Ok(VerificationOutcome::AllFilesMissing);
+        }
+
+        println!("There are files available for this release. Will now verify.");
         println!("The torrent has {} pieces to verify", num_pieces);
         let bar = ProgressBar::new(num_pieces as u64);
         bar.set_style(
@@ -374,9 +388,6 @@ impl Release {
         }
 
         if !missing_files.is_empty() || !mismatched_files.is_empty() {
-            if missing_files.len() == files.len() {
-                return Ok(VerificationOutcome::AllFilesMissing);
-            }
             return Ok(VerificationOutcome::Incomplete(
                 missing_files.into_iter().collect(),
                 mismatched_files.into_iter().collect(),

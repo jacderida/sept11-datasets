@@ -88,12 +88,18 @@ fn main() -> Result<()> {
             for release in releases.iter() {
                 if directory {
                     println!(
-                        "{}: {}",
+                        "{}: {} ({} files)",
                         release.id,
-                        release.directory.clone().unwrap_or("None".to_string())
+                        release.directory.clone().unwrap_or("None".to_string()),
+                        release.file_count.unwrap_or(0),
                     )
                 } else {
-                    println!("{}: {}", release.id, release.name);
+                    println!(
+                        "{}: {} ({} files)",
+                        release.id,
+                        release.name,
+                        release.file_count.unwrap_or(0)
+                    );
                 }
             }
             Ok(())
