@@ -127,6 +127,14 @@ fn main() -> Result<()> {
             } else {
                 let releases = get_releases(&conn)?;
                 Release::print_status_table(&releases)?;
+                let bytes_remaining: u64 = releases
+                    .iter()
+                    .filter(|x| x.get_verification_outcome() == "MISSING")
+                    .map(|x| x.size.unwrap_or(0))
+                    .sum();
+                let human_readable_bytes_remaining =
+                    sept11_datasets::bytes_to_human_readable(bytes_remaining);
+                println!("{human_readable_bytes_remaining} still missing");
             }
             Ok(())
         }

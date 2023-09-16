@@ -59,7 +59,7 @@ impl fmt::Display for Release {
             self.file_count
                 .map_or("None".to_string(), |n| n.to_string()),
             self.size
-                .map_or("None".to_string(), |s| self.bytes_to_human_readable(s))
+                .map_or("None".to_string(), |s| bytes_to_human_readable(s))
         )
     }
 }
@@ -397,17 +397,6 @@ impl Release {
         Ok(VerificationOutcome::Verified)
     }
 
-    fn bytes_to_human_readable(&self, bytes: u64) -> String {
-        const GB: u64 = 1024 * 1024 * 1024;
-        const MB: u64 = 1024 * 1024;
-
-        if bytes >= GB {
-            format!("{:.2} GB", bytes as f64 / GB as f64)
-        } else {
-            format!("{:.2} MB", bytes as f64 / MB as f64)
-        }
-    }
-
     fn get_file_name_from_url(url: &Url) -> Result<String> {
         let file_name = url
             .path_segments()
@@ -415,5 +404,19 @@ impl Release {
             .last()
             .ok_or(Error::PathSegmentsParseError)?;
         Ok(file_name.to_string())
+    }
+}
+
+pub fn bytes_to_human_readable(bytes: u64) -> String {
+    const TB: u64 = 1024 * 1024 * 1024 * 1024;
+    const GB: u64 = 1024 * 1024 * 1024;
+    const MB: u64 = 1024 * 1024;
+
+    if bytes >= TB {
+        format!("{:.2} TB", bytes as f64 / TB as f64)
+    } else if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else {
+        format!("{:.2} MB", bytes as f64 / MB as f64)
     }
 }
