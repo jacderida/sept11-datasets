@@ -5,7 +5,7 @@ pub mod release_data;
 use crate::error::{Error, Result};
 use crate::release_data::RELEASE_DATA;
 use colored::*;
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use lava_torrent::torrent::v1::Torrent;
 use prettytable::{color, Attr, Cell, Row as TableRow, Table};
 use rusqlite::Row;
@@ -15,6 +15,9 @@ use std::fmt;
 use std::fs::File;
 use std::io::{Read, Seek};
 use std::path::PathBuf;
+use tokio::fs::OpenOptions;
+use tokio::io::{AsyncWriteExt, BufWriter};
+use tokio::time::{sleep, Duration};
 use url::Url;
 
 const WRAP_LENGTH: usize = 72;
@@ -89,7 +92,19 @@ impl Release {
     pub fn print_status_table(releases: &Vec<Release>) -> Result<()> {
         let mut table = Table::new();
         for release in releases.iter() {
-            let wrapped_title = textwrap::wrap(&release.name, WRAP_LENGTH).join("\n");
+            let title = match release.verification_outcome {
+                Some(VerificationOutcome::TorrentMissing) => release.name.clone(),
+                Some(_) => {
+                    format!(
+                        "{} -- {} files -- {}",
+                        release.name,
+                        release.file_count.unwrap(),
+                        bytes_to_human_readable(release.size.unwrap())
+                    )
+                }
+                None => release.name.clone(),
+            };
+            let wrapped_title = textwrap::wrap(&title, WRAP_LENGTH).join("\n");
             let outcome_cell = match release.verification_outcome.as_ref() {
                 Some(outcome) => match outcome {
                     VerificationOutcome::Verified => Cell::new("VERIFIED")
@@ -144,7 +159,7 @@ impl Release {
                 );
             }
             Some(VerificationOutcome::Incomplete(missing_files, corrupt_files)) => {
-                println!("Status: {}", "VERIFIED".cyan());
+                println!("Status: {}", "INCOMPLETE".cyan());
                 let file_count = self.file_count.ok_or_else(|| {
                     Error::VerificationReportError(
                         "an incomplete release must have a file count".to_string(),
@@ -162,7 +177,7 @@ impl Release {
                     println!("{corrupt_files:#?}");
                     println!(
                         "{} of {} files are corrupted for this release",
-                        missing_files.len(),
+                        corrupt_files.len(),
                         file_count,
                     );
                 }
@@ -273,6 +288,88 @@ impl Release {
             releases.push(Release::new(date, name, directory, file_count, size, url));
         }
         Ok(releases)
+    }
+
+    pub fn get_torrent_tree(&self, torrents_path: &PathBuf) -> Result<Vec<PathBuf>> {
+        let torrent_path = torrents_path.join(Self::get_file_name_from_url(&self.torrent_url)?);
+        let torrent = Torrent::read_from_file(torrent_path)?;
+        let files = torrent.files.ok_or_else(|| Error::TorrentFilesError)?;
+        let tree = files
+            .iter()
+            .map(|f| f.path.clone())
+            .collect::<Vec<PathBuf>>();
+        Ok(tree)
+    }
+
+    pub async fn download_release_from_archive(
+        &self,
+        base_url: &Url,
+        torrents_path: &PathBuf,
+        base_target_path: &PathBuf,
+    ) -> Result<()> {
+        let tree = self.get_torrent_tree(&torrents_path)?;
+        let multi_progress = MultiProgress::new();
+        let total_pb = multi_progress.add(ProgressBar::new(tree.len() as u64));
+        total_pb.set_style(
+            ProgressStyle::default_bar()
+                .template("Overall progress: [{bar:40.cyan/blue}] {pos}/{len} files")?
+                .progress_chars("#>-"),
+        );
+
+        let file_pb = multi_progress.add(ProgressBar::new(0));
+        file_pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{prefix:.bold.dim} [{bar:30.green/blue}] {bytes}/{total_bytes} {bytes_per_sec}")?
+                .progress_chars("=> "),
+        );
+
+        println!("Downloading files for {}...", self.name);
+        for path in tree.iter() {
+            let target_path = base_target_path.join(path);
+            if !target_path.exists() {
+                let file_name = target_path.file_name().unwrap().to_string_lossy();
+                file_pb.set_prefix(format!("Downloading: {}", file_name));
+                file_pb.set_position(0);
+                if let Some(parent) = target_path.parent() {
+                    tokio::fs::create_dir_all(parent).await?;
+                }
+                let mut url = base_url.clone();
+                {
+                    let mut path_segments = match url.path_segments_mut() {
+                        Ok(segments) => segments,
+                        Err(_) => return Err(Error::PathSegmentsParseError),
+                    };
+                    path_segments.extend(
+                        path.to_str()
+                            .ok_or_else(|| Error::PathSegmentsParseError)?
+                            .split('/'),
+                    );
+                }
+                let mut retries = 10;
+                loop {
+                    match Self::download_file(&url, &target_path, &file_pb).await {
+                        Ok(_) => {
+                            file_pb.finish_with_message("Download completed");
+                            break;
+                        }
+                        Err(e) => {
+                            retries -= 1;
+                            if retries == 0 {
+                                file_pb.abandon_with_message("Download failed after 10 retries");
+                                return Err(e.into());
+                            }
+                            file_pb
+                                .abandon_with_message("Download failed. Will retry in 5 seconds.");
+                            sleep(Duration::from_secs(5)).await;
+                        }
+                    }
+                }
+            }
+            total_pb.inc(1);
+        }
+
+        total_pb.finish_with_message("Downloaded all files in the torrent tree");
+        Ok(())
     }
 
     pub fn verify(
@@ -404,6 +501,40 @@ impl Release {
             .last()
             .ok_or(Error::PathSegmentsParseError)?;
         Ok(file_name.to_string())
+    }
+
+    async fn download_file(url: &Url, target_path: &PathBuf, file_pb: &ProgressBar) -> Result<()> {
+        let client = reqwest::Client::new();
+        let mut request_builder = client.get(url.clone());
+        let tmp_path = target_path.with_extension("part");
+
+        let mut start = 0;
+        if tmp_path.exists() {
+            start = tokio::fs::metadata(&tmp_path).await?.len() as usize;
+            file_pb.set_position(start as u64);
+            request_builder = request_builder.header("Range", format!("bytes={}-", start));
+        }
+
+        let mut response = request_builder.send().await?;
+        if let Some(len) = response.content_length() {
+            file_pb.set_length(len);
+        }
+        let file = if start > 0 {
+            OpenOptions::new().append(true).open(&tmp_path).await?
+        } else {
+            tokio::fs::File::create(&tmp_path).await?
+        };
+
+        let mut writer = BufWriter::new(file);
+        while let Some(chunk) = response.chunk().await? {
+            writer.write_all(&chunk).await?;
+            file_pb.inc(chunk.len() as u64);
+        }
+
+        writer.flush().await?;
+        tokio::fs::rename(&tmp_path, target_path).await?;
+
+        Ok(())
     }
 }
 

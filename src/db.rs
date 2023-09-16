@@ -109,11 +109,17 @@ pub fn save_verification_result(conn: &mut Connection, release: &Release) -> Res
     Ok(())
 }
 
-pub fn reset_verification_result(conn: &Connection, release_id: &str) -> Result<()> {
-    conn.execute(
+pub fn reset_verification_result(conn: &mut Connection, release_id: &str) -> Result<()> {
+    let tx = conn.transaction()?;
+    tx.execute(
         "UPDATE releases SET verification_outcome = 'UNKNOWN' WHERE id = ?1",
         params![release_id],
     )?;
+    tx.execute(
+        "DELETE FROM incomplete_files WHERE release_id = ?1",
+        params![release_id],
+    )?;
+    tx.commit()?;
     Ok(())
 }
 

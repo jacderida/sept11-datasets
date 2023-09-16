@@ -56,15 +56,43 @@ cargo run -- ls # obtain the ID of the release
 cargo run -- verify --id <release-id> --target-path <releases-directory> --torrents-path resources/torrents
 ```
 
+## Downloading Releases
+
+Some of the releases, like the NIST FOIA 09 series, are on the archive. They have the same tree as the torrent. It's possible to download all the individual files with this tool. Use the following command:
+```
+cargo run -- download-release \
+  --id 34f28513edfaa80a46bd627195f8ea4ae573d914 \
+  --torrents-path resources/torrents \
+  --target-path /mnt/sept11-archive/9-11-archive/911datasets.org \
+  --url https://archive.org/download/NIST_9-11_Release_01
+```
+
+This is basic downloading mechanism. It's slow, for two reasons:
+
+1. Each file in the release is downloaded individually and sequentially. So a new connection is opened/closed for each item, and only one at at time. It would be possible to use, say, 100 concurrent connections, but I don't want to abuse the archive service.
+2. The archive itself can be slow, depending on which mirror you get redirected to.
+
+Anyway, this is a process that really doesn't require speed; for larger releases, just leave it running for a few days. It uses retries and resuming.
+
+After the release has been downloaded, verify it:
+```
+cargo run -- verify \
+  --id 34f28513edfaa80a46bd627195f8ea4ae573d914 \
+  --target-path /mnt/sept11-archive/9-11-archive/911datasets.org/ \
+  --torrents-path resources/torrents
+```
+
 ## Useful Links
 
 The archived 911datasets.org: [link](https://web.archive.org/web/20190111000139/http://911datasets.org/index.php/Main_Page). Still useful for browsing and obtaining the torrent content.
 
 [A Danish site](https://www.911facts.dk/?page_id=9268&lang=en) that invites you to contact them if you need a release. Looks like a dubious 'truther' thing, but perhaps it could potentially be useful for obtaining missing stuff.
 
-Many of the non-NIST releases: [link](https://archive.org/details/911datasets)
+The majority of the releases that are not in the NIST 09 series are here: [link](https://archive.org/details/911datasets)
 
-### The 42 NIST FOIA Releases
+[NIST FOIA 12-179 Jul 12 2012](https://archive.org/download/NIST_FOIA_12-179_Jul_12_2012)
+
+### The 42 NIST FOIA 09 Series Releases
 
 These 42 releases were among lots of other material made available by NIST, but for some reason just
 these ones were labelled from 1 to 42.

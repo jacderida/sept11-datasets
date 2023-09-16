@@ -3,6 +3,7 @@ use color_eyre::{eyre::eyre, Result};
 use sept11_datasets::db::*;
 use sept11_datasets::{Release, VerificationOutcome};
 use std::path::PathBuf;
+use url::Url;
 
 #[derive(Parser, Debug)]
 #[clap(name = "sept11-datasets", version = env!("CARGO_PKG_VERSION"))]
@@ -13,10 +14,34 @@ struct Opt {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Download a release from the Internet Archive.
+    ///
+    /// Some releases are on the archive, where they have the same tree as the torrent. Given the
+    /// URL prefix of the release on the archive, we can use the information from the torrent to
+    /// download all the files individually.
+    ///
+    /// To avoid abuse of the archive, the files are downloaded sequentially.
+    #[clap(name = "download-release", verbatim_doc_comment)]
+    DownloadRelease {
+        /// The ID of the release to download
+        #[arg(long)]
+        id: String,
+        /// The URL of the release on the archive.
+        ///
+        /// This should be the top level URL, e.g., https://archive.org/download/NIST_9-11_Release_01.
+        #[arg(long, verbatim_doc_comment)]
+        url: String,
+        /// Path specifying where the files should be downloaded
+        #[arg(long)]
+        target_path: PathBuf,
+        /// Path to the directory containing the release torrent files
+        #[arg(long)]
+        torrents_path: PathBuf,
+    },
     /// Build the release database from the torrent files
     Init {
         /// Path to the directory containing the release torrent files
-        #[arg(short = 'n', long)]
+        #[arg(long)]
         torrents_path: PathBuf,
     },
     // Print the releases
@@ -25,13 +50,13 @@ enum Commands {
         #[arg(long)]
         directory: bool,
     },
-    // Reset verification result for missing releases.
+    // Reset verification result for releases
     Reset {
         /// Only reset the release with the specified ID.
         ///
         /// If not supplied, all missing releases will be reset.
         #[arg(long)]
-        release_id: Option<String>,
+        id: Option<String>,
     },
     // Print the current verification status releases
     Status {
@@ -39,7 +64,7 @@ enum Commands {
         ///
         /// If not supplied, all releases will be iterated.
         #[arg(long)]
-        release_id: Option<String>,
+        id: Option<String>,
     },
     // Verify releases against their corresponding torrents
     Verify {
@@ -57,11 +82,28 @@ enum Commands {
     },
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     color_eyre::install()?;
 
     let opt = Opt::parse();
     match opt.command {
+        Some(Commands::DownloadRelease {
+            id,
+            url,
+            target_path,
+            torrents_path,
+        }) => {
+            let db_path = get_database_path()?;
+            let conn = get_db_connection(&db_path)?;
+            let release = get_release_by_id(&conn, &id)?;
+            let _ = conn.close();
+            let url = Url::parse(&url)?;
+            release
+                .download_release_from_archive(&url, &torrents_path, &target_path)
+                .await?;
+            Ok(())
+        }
         Some(Commands::Init { torrents_path }) => {
             println!("Building releases from static data...");
             let releases = Release::init_releases(torrents_path)?;
@@ -104,24 +146,25 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Some(Commands::Reset { release_id }) => {
+        Some(Commands::Reset { id }) => {
             let db_path = get_database_path()?;
-            let conn = get_db_connection(&db_path)?;
-            if let Some(id) = release_id {
-                reset_verification_result(&conn, &id)?;
+            let mut conn = get_db_connection(&db_path)?;
+            if let Some(id) = id {
+                reset_verification_result(&mut conn, &id)?;
+                println!("Set {} back to UNKNOWN status", id);
             } else {
                 let releases = get_missing_releases(&conn)?;
                 for release in releases.iter() {
-                    reset_verification_result(&conn, &release.id)?;
+                    reset_verification_result(&mut conn, &release.id)?;
                     println!("Set {} back to UNKNOWN status", release.name);
                 }
             }
             Ok(())
         }
-        Some(Commands::Status { release_id }) => {
+        Some(Commands::Status { id }) => {
             let db_path = get_database_path()?;
             let conn = get_db_connection(&db_path)?;
-            if let Some(id) = release_id {
+            if let Some(id) = id {
                 let release = get_release_by_id(&conn, &id)?;
                 release.print_verification_status()?;
             } else {

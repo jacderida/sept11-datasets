@@ -13,10 +13,14 @@ pub enum Error {
     MalformedReleaseTable,
     #[error("Cannot parse path segments from torrent URL")]
     PathSegmentsParseError,
+    #[error("Failed to download file in release: {0}")]
+    ReleaseDownloadError(String),
     #[error("The top level directory for the release could not be obtained")]
     ReleaseDirectoryNotObtained,
     #[error("There is no release with ID {0}")]
     ReleaseNotFound(String),
+    #[error(transparent)]
+    ReqwestError(#[from] reqwest::Error),
     #[error(transparent)]
     SqlError(#[from] rusqlite::Error),
     #[error(transparent)]
