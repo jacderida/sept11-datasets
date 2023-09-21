@@ -50,6 +50,16 @@ enum Commands {
         #[arg(long)]
         directory: bool,
     },
+    // List the files in the torrent
+    #[clap(name = "ls-files", verbatim_doc_comment)]
+    LsFiles {
+        /// The id of the release
+        #[arg(long)]
+        id: String,
+        /// Path to the directory containing the release torrent files
+        #[arg(long)]
+        torrents_path: PathBuf,
+    },
     // Reset verification result for releases
     Reset {
         /// Only reset the release with the specified ID.
@@ -146,6 +156,16 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
+        Some(Commands::LsFiles { id, torrents_path }) => {
+            let db_path = get_database_path()?;
+            let conn = get_db_connection(&db_path)?;
+            let release = get_release_by_id(&conn, &id)?;
+            let files = release.get_torrent_tree(&torrents_path)?;
+            for file in files.iter() {
+                println!("{}", file.to_string_lossy());
+            }
+            Ok(())
+        }
         Some(Commands::Reset { id }) => {
             let db_path = get_database_path()?;
             let mut conn = get_db_connection(&db_path)?;
@@ -219,7 +239,6 @@ fn verify_release(
         println!("This release was previously verified");
         verification_outcome.clone()
     } else {
-        println!("Performing verification...");
         let outcome = release.verify(torrents_path, target_path)?;
         release.verification_outcome = Some(outcome.clone());
 

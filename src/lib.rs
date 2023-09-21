@@ -377,9 +377,6 @@ impl Release {
         torrents_path: &PathBuf,
         target_directory: &PathBuf,
     ) -> Result<VerificationOutcome> {
-        let mut mismatched_files = HashSet::new();
-        let mut missing_files = HashSet::new();
-
         if self.file_count.is_none() {
             return Ok(VerificationOutcome::TorrentMissing);
         }
@@ -390,20 +387,25 @@ impl Release {
         let num_pieces = torrent.pieces.len();
         let files = torrent.files.ok_or_else(|| Error::TorrentFilesError)?;
 
-        // Check for a 'MISSING' result first. This is quicker than going through all the pieces.
-        println!("Checking first to see if all files are missing...");
-        let mut missing_count = 0;
+        // If any files are missing, we can bail out before attempting to verify the release.
+        let mut missing_files = HashSet::new();
+        println!("Checking for missing files...");
         for file in files.iter() {
             let path = target_directory.join(file.path.clone());
             if !path.exists() {
-                missing_count += 1;
+                missing_files.insert(path.clone());
             }
         }
-        if missing_count == files.len() {
+        if missing_files.len() == files.len() {
             return Ok(VerificationOutcome::AllFilesMissing);
+        } else if missing_files.len() > 0 {
+            return Ok(VerificationOutcome::Incomplete(
+                missing_files.into_iter().collect(),
+                vec![],
+            ));
         }
 
-        println!("There are files available for this release. Will now verify.");
+        println!("All files are present. Will now attempt to verify them.");
         println!("The torrent has {} pieces to verify", num_pieces);
         let bar = ProgressBar::new(num_pieces as u64);
         bar.set_style(
@@ -412,6 +414,7 @@ impl Release {
                 .progress_chars("#>-"),
         );
 
+        let mut mismatched_files = HashSet::new();
         let mut piece_idx = 0;
         let mut file_idx = 0;
         let mut offset: u64 = 0;
@@ -419,7 +422,6 @@ impl Release {
         while piece_idx < num_pieces {
             let piece_hash = &torrent.pieces[piece_idx];
             let mut buffer = Vec::new();
-            let mut is_missing_file = false;
 
             // This loop reads a piece, which can span across multiple files, if the files are
             // smaller than the piece size. The 'pieces' in the torrent file are with respect to
@@ -427,27 +429,6 @@ impl Release {
             while buffer.len() < piece_length as usize {
                 let file_info = &files[file_idx];
                 let file_path = target_directory.join(file_info.path.clone());
-
-                if !file_path.exists() {
-                    missing_files.insert(file_info.path.clone());
-                    is_missing_file = true;
-
-                    let remaining_in_file = file_info.length as u64 - offset;
-                    let remaining_in_piece = (piece_length as usize) - buffer.len();
-                    let skip = std::cmp::min(remaining_in_file, remaining_in_piece as u64);
-
-                    offset += skip;
-                    buffer.resize(buffer.len() + skip as usize, 0);
-
-                    if offset >= file_info.length as u64 {
-                        offset = 0;
-                        file_idx += 1;
-                        if file_idx == files.len() {
-                            break;
-                        }
-                    }
-                    continue;
-                }
 
                 let mut file = File::open(file_path)?;
                 file.seek(std::io::SeekFrom::Start(offset))?;
@@ -473,22 +454,21 @@ impl Release {
             let mut hasher = Sha1::new();
             hasher.update(&buffer);
             let result = hasher.finalize();
-            if result.as_slice() != piece_hash && !is_missing_file {
+            if result.as_slice() != piece_hash {
                 if file_idx == files.len() {
                     break;
                 }
                 mismatched_files.insert(files[file_idx].path.to_string_lossy().to_string());
+                // If the content doesn't match at any point, the rest of the hashes won't match,
+                // so we can just bail out here.
+                return Ok(VerificationOutcome::Incomplete(
+                    vec![],
+                    mismatched_files.into_iter().collect(),
+                ));
             }
 
             piece_idx += 1;
             bar.inc(1);
-        }
-
-        if !missing_files.is_empty() || !mismatched_files.is_empty() {
-            return Ok(VerificationOutcome::Incomplete(
-                missing_files.into_iter().collect(),
-                mismatched_files.into_iter().collect(),
-            ));
         }
 
         Ok(VerificationOutcome::Verified)
