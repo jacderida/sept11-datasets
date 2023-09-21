@@ -24,6 +24,7 @@ const WRAP_LENGTH: usize = 72;
 
 #[derive(Clone)]
 pub enum VerificationOutcome {
+    Complete,
     Verified,
     TorrentMissing,
     Incomplete(Vec<PathBuf>, Vec<String>),
@@ -33,6 +34,7 @@ pub enum VerificationOutcome {
 impl fmt::Display for VerificationOutcome {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            VerificationOutcome::Complete => write!(f, "COMPLETE"),
             VerificationOutcome::Verified => write!(f, "VERIFIED"),
             VerificationOutcome::TorrentMissing => write!(f, "NO TORRENT"),
             VerificationOutcome::Incomplete(_, _) => write!(f, "INCOMPLETE"),
@@ -107,6 +109,9 @@ impl Release {
             let wrapped_title = textwrap::wrap(&title, WRAP_LENGTH).join("\n");
             let outcome_cell = match release.verification_outcome.as_ref() {
                 Some(outcome) => match outcome {
+                    VerificationOutcome::Complete => Cell::new("COMPLETE")
+                        .with_style(Attr::Bold)
+                        .with_style(Attr::ForegroundColor(color::BRIGHT_GREEN)),
                     VerificationOutcome::Verified => Cell::new("VERIFIED")
                         .with_style(Attr::Bold)
                         .with_style(Attr::ForegroundColor(color::BRIGHT_GREEN)),
@@ -156,6 +161,13 @@ impl Release {
                 println!(
                     "All {} files were verified against the torrent piece hashes",
                     file_count
+                );
+            }
+            Some(VerificationOutcome::Complete) => {
+                println!("Status: {}", "COMPLETE".bright_green());
+                println!(
+                    "All files are present, but hashes don't match, or there was no torrent to \
+                        compare the release with.",
                 );
             }
             Some(VerificationOutcome::Incomplete(missing_files, corrupt_files)) => {
@@ -222,6 +234,7 @@ impl Release {
         let torrent_url = Url::parse(&torrent_url).unwrap();
         let verification_outcome: String = row.get(7)?;
         let verification_outcome = match verification_outcome.as_str() {
+            "COMPLETE" => Some(VerificationOutcome::Complete),
             "VERIFIED" => Some(VerificationOutcome::Verified),
             "NO TORRENT" => Some(VerificationOutcome::TorrentMissing),
             "MISSING" => Some(VerificationOutcome::AllFilesMissing),
@@ -370,6 +383,72 @@ impl Release {
 
         total_pb.finish_with_message("Downloaded all files in the torrent tree");
         Ok(())
+    }
+
+    pub fn check(
+        &self,
+        torrents_path: &PathBuf,
+        target_directory: &PathBuf,
+    ) -> Result<VerificationOutcome> {
+        if self.file_count.is_none() {
+            return Ok(VerificationOutcome::TorrentMissing);
+        }
+
+        let torrent_path = torrents_path.join(Self::get_file_name_from_url(&self.torrent_url)?);
+        let torrent = Torrent::read_from_file(torrent_path)?;
+        let files = torrent.files.ok_or_else(|| Error::TorrentFilesError)?;
+
+        let missing_files_pb = ProgressBar::new(files.len() as u64);
+        missing_files_pb.set_style(
+            ProgressStyle::default_bar()
+                .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len}")?
+                .progress_chars("#>-"),
+        );
+
+        let mut missing_files = HashSet::new();
+        println!("Checking for missing files...");
+        for file in files.iter() {
+            let path = target_directory.join(file.path.clone());
+            if !path.exists() {
+                missing_files.insert(path.clone());
+            }
+            missing_files_pb.inc(1);
+        }
+        missing_files_pb.finish_with_message("Completed");
+
+        if missing_files.len() == files.len() {
+            return Ok(VerificationOutcome::AllFilesMissing);
+        } else if missing_files.len() > 0 {
+            return Ok(VerificationOutcome::Incomplete(
+                missing_files.into_iter().collect(),
+                vec![],
+            ));
+        }
+
+        let size_mismatch_pb = ProgressBar::new(files.len() as u64);
+        size_mismatch_pb.set_style(
+            ProgressStyle::default_bar()
+                .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len}")?
+                .progress_chars("#>-"),
+        );
+        println!("Checking for size mismatches...");
+        let mut size_mismatches = Vec::new();
+        for file in files.iter() {
+            let path = target_directory.join(file.path.clone());
+            let metadata = std::fs::metadata(&path)?;
+            let size = metadata.len();
+            if size != file.length as u64 {
+                size_mismatches.push(path.to_string_lossy().to_string());
+            }
+            size_mismatch_pb.inc(1);
+        }
+        size_mismatch_pb.finish_with_message("Completed");
+
+        if !size_mismatches.is_empty() {
+            return Ok(VerificationOutcome::Incomplete(vec![], size_mismatches));
+        }
+
+        Ok(VerificationOutcome::Complete)
     }
 
     pub fn verify(

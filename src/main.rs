@@ -14,6 +14,22 @@ struct Opt {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Check the release for completeness by seeing if all the files are present and comparing the
+    /// sizes against those in the torrent.
+    ///
+    /// This is to attempt to mark a release as complete, as opposed to verified. I had one release
+    /// which could not be verified, but did not appear to have any corrupt files.
+    Check {
+        /// The ID of the release to download
+        #[arg(long)]
+        id: String,
+        /// Path to the directory containing the files for the release
+        #[arg(long)]
+        target_path: PathBuf,
+        /// Path to the directory containing the release torrent files
+        #[arg(long)]
+        torrents_path: PathBuf,
+    },
     /// Download a release from the Internet Archive.
     ///
     /// Some releases are on the archive, where they have the same tree as the torrent. Given the
@@ -98,6 +114,47 @@ async fn main() -> Result<()> {
 
     let opt = Opt::parse();
     match opt.command {
+        Some(Commands::Check {
+            id,
+            target_path,
+            torrents_path,
+        }) => {
+            let db_path = get_database_path()?;
+            let conn = get_db_connection(&db_path)?;
+            let mut release = get_release_by_id(&conn, &id)?;
+            let _ = conn.close();
+            let outcome = if let Some(verification_outcome) = &release.verification_outcome {
+                println!("This release was previously verified");
+                verification_outcome.clone()
+            } else {
+                let outcome = release.check(&torrents_path, &target_path)?;
+                release.verification_outcome = Some(outcome.clone());
+                let mut conn = get_db_connection(get_database_path()?)?;
+                save_verification_result(&mut conn, &release)?;
+                let _ = conn.close();
+                outcome
+            };
+            match outcome {
+                VerificationOutcome::Incomplete(missing, corrupted) => {
+                    println!("Outcome: INCOMPLETE");
+                    if !missing.is_empty() {
+                        println!("Missing files:");
+                        for file in missing.iter() {
+                            println!("{}", file.to_string_lossy());
+                        }
+                    } else {
+                        println!("Files with size mismatch:");
+                        for file in corrupted.iter() {
+                            println!("{}", file);
+                        }
+                    }
+                }
+                _ => {
+                    println!("Outcome: {}", outcome);
+                }
+            }
+            Ok(())
+        }
         Some(Commands::DownloadRelease {
             id,
             url,

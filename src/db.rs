@@ -38,6 +38,7 @@ pub fn save_new_release(conn: &Connection, release: &Release) -> Result<()> {
     let file_count: Option<i64> = release.file_count.map(|v| v as i64);
     let size: Option<i64> = release.size.map(|v| v as i64);
     let verification_status = match &release.verification_outcome {
+        Some(VerificationOutcome::Complete) => "COMPLETE".to_string(),
         Some(VerificationOutcome::Verified) => "VERIFIED".to_string(),
         Some(VerificationOutcome::TorrentMissing) => "NO TORRENT".to_string(),
         Some(VerificationOutcome::Incomplete(_, _)) => "INCOMPLETE".to_string(),
@@ -81,6 +82,7 @@ pub fn save_verification_result(conn: &mut Connection, release: &Release) -> Res
     let tx = conn.transaction()?;
     let outcome = release.verification_outcome.as_ref().unwrap();
     let outcome_str = match outcome {
+        VerificationOutcome::Complete => "COMPLETE",
         VerificationOutcome::Verified => "VERIFIED",
         VerificationOutcome::TorrentMissing => "NO TORRENT",
         VerificationOutcome::Incomplete(_, _) => "INCOMPLETE",
