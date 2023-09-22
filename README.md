@@ -67,7 +67,7 @@ cargo run -- download-release \
   --url https://archive.org/download/NIST_9-11_Release_01
 ```
 
-This is basic downloading mechanism. It's slow, for two reasons:
+This is a basic downloading mechanism. It's slow, for two reasons:
 
 1. Each file in the release is downloaded individually and sequentially. So a new connection is opened/closed for each item, and only one at at time. It would be possible to use, say, 100 concurrent connections, but I don't want to abuse the archive service.
 2. The archive itself can be slow, depending on which mirror you get redirected to.

@@ -49,6 +49,7 @@ pub struct Release {
     pub name: String,
     pub directory: Option<String>,
     pub file_count: Option<usize>,
+    pub notes: Option<String>,
     pub size: Option<u64>,
     pub torrent_url: Url,
     pub verification_outcome: Option<VerificationOutcome>,
@@ -85,6 +86,7 @@ impl Release {
             name,
             directory,
             file_count,
+            notes: None,
             size,
             torrent_url,
             verification_outcome: None,
@@ -178,15 +180,13 @@ impl Release {
                     )
                 })?;
                 if missing_files.len() > 0 {
-                    println!("{missing_files:#?}");
                     println!(
-                        "{} of {} files were missing from this release",
+                        "{} of {} files are missing from this release",
                         missing_files.len(),
                         file_count,
                     );
                 }
                 if corrupt_files.len() > 0 {
-                    println!("{corrupt_files:#?}");
                     println!(
                         "{} of {} files are corrupted for this release",
                         corrupt_files.len(),
@@ -204,9 +204,14 @@ impl Release {
                     )
                 })?;
                 println!("Status: {}", "MISSING".red());
-                println!("All {} files were missing for this release", file_count);
+                println!("All {} files are missing for this release", file_count);
             }
             None => println!("Status: {}", "UNKNOWN".red()),
+        }
+        if let Some(notes) = &self.notes {
+            println!();
+            println!("Notes:");
+            println!("{notes}");
         }
         Ok(())
     }
@@ -245,12 +250,14 @@ impl Release {
             "UNKNOWN" => None,
             _ => None,
         };
+        let notes: Option<String> = row.get(8)?;
         Ok(Release {
             id,
             date,
             name,
             directory,
             file_count,
+            notes,
             size,
             torrent_url,
             verification_outcome,

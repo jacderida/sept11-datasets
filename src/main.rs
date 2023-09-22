@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use color_eyre::{eyre::eyre, Result};
+use dialoguer::Editor;
 use sept11_datasets::db::*;
 use sept11_datasets::{Release, VerificationOutcome};
 use std::path::PathBuf;
@@ -54,11 +55,14 @@ enum Commands {
         #[arg(long)]
         torrents_path: PathBuf,
     },
-    /// Build the release database from the torrent files
+    /// Build the release database from the torrent files.
+    ///
+    /// If the database already exists, running this command again will add any new schema that
+    /// needs to be created.
     Init {
         /// Path to the directory containing the release torrent files
         #[arg(long)]
-        torrents_path: PathBuf,
+        torrents_path: Option<PathBuf>,
     },
     // Print the releases
     Ls {
@@ -75,6 +79,14 @@ enum Commands {
         /// Path to the directory containing the release torrent files
         #[arg(long)]
         torrents_path: PathBuf,
+    },
+    /// Add or edit notes for a release.
+    ///
+    /// Set the EDITOR variable to determine which editor will be used to compose the note.
+    Notes {
+        /// The id of the release
+        #[arg(long)]
+        id: String,
     },
     // Reset verification result for releases
     Reset {
@@ -172,8 +184,20 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Some(Commands::Init { torrents_path }) => {
+            let db_path = get_database_path()?;
+            if db_path.exists() {
+                let conn = get_db_connection(&db_path)?;
+                create_db_schema(&conn)?;
+                println!("Updated database schema");
+                return Ok(());
+            }
+
             println!("Building releases from static data...");
-            let releases = Release::init_releases(torrents_path)?;
+            let releases = Release::init_releases(torrents_path.ok_or_else(|| {
+                eyre!(
+                "When creating the database for the first time, the --torrents-path argument must \
+                be supplied")
+            })?)?;
             for release in releases.iter() {
                 println!("{release}");
             }
@@ -220,6 +244,18 @@ async fn main() -> Result<()> {
             let files = release.get_torrent_tree(&torrents_path)?;
             for file in files.iter() {
                 println!("{}", file.to_string_lossy());
+            }
+            Ok(())
+        }
+        Some(Commands::Notes { id }) => {
+            let db_path = get_database_path()?;
+            let conn = get_db_connection(&db_path)?;
+            let release = get_release_by_id(&conn, &id)?;
+            if let Some(edited_notes) = Editor::new()
+                .edit(&release.notes.unwrap_or("".to_string()))
+                .unwrap()
+            {
+                save_notes(&conn, &id, &edited_notes)?;
             }
             Ok(())
         }

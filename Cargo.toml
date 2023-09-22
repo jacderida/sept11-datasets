@@ -11,6 +11,7 @@ name="sept11-datasets"
 color-eyre = "0.6"
 colored = "2.0.4"
 clap = { version = "4.2.1", features = ["derive"] }
+dialoguer = "0.10.4"
 dirs-next = "2.0.0"
 indicatif = "0.17.6"
 lava_torrent = "0.11"
