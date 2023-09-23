@@ -5,6 +5,10 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 #[derive(Debug, Error)]
 #[allow(missing_docs)]
 pub enum Error {
+    #[error("A 404 response was returned for {0}")]
+    ArchiveFileNotFoundError(String),
+    #[error("Error response when downloading file: {0}")]
+    ArchiveDownloadFailed(u16),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]

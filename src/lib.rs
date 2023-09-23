@@ -372,16 +372,24 @@ impl Release {
                             file_pb.finish_with_message("Download completed");
                             break;
                         }
-                        Err(e) => {
-                            retries -= 1;
-                            if retries == 0 {
-                                file_pb.abandon_with_message("Download failed after 10 retries");
-                                return Err(e.into());
+                        Err(e) => match e {
+                            Error::ArchiveFileNotFoundError(_) => {
+                                file_pb.abandon_with_message("Download failed. File not found.");
+                                break;
                             }
-                            file_pb
-                                .abandon_with_message("Download failed. Will retry in 5 seconds.");
-                            sleep(Duration::from_secs(5)).await;
-                        }
+                            _ => {
+                                retries -= 1;
+                                if retries == 0 {
+                                    file_pb
+                                        .abandon_with_message("Download failed after 10 retries");
+                                    return Err(e.into());
+                                }
+                                file_pb.abandon_with_message(
+                                    "Download failed. Will retry in 5 seconds.",
+                                );
+                                sleep(Duration::from_secs(5)).await;
+                            }
+                        },
                     }
                 }
             }
@@ -582,6 +590,13 @@ impl Release {
         }
 
         let mut response = request_builder.send().await?;
+        if response.status() == 404 {
+            return Err(Error::ArchiveFileNotFoundError(url.to_string()));
+        }
+        if !response.status().is_success() {
+            return Err(Error::ArchiveDownloadFailed(response.status().into()));
+        }
+
         if let Some(len) = response.content_length() {
             file_pb.set_length(len);
         }
