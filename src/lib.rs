@@ -149,8 +149,12 @@ impl Release {
         }
     }
 
-    pub fn print_verification_status(&self) -> Result<()> {
+    pub fn print_verification_status(&self, show_incomplete: bool) -> Result<()> {
         println!("{}", self.name);
+        println!("Files: {}", self.file_count.unwrap_or(0));
+        println!("Size: {}", bytes_to_human_readable(self.size.unwrap_or(0)));
+        println!();
+
         match &self.verification_outcome {
             Some(VerificationOutcome::Verified) => {
                 let file_count = self.file_count.ok_or_else(|| {
@@ -179,18 +183,42 @@ impl Release {
                     )
                 })?;
                 if missing_files.len() > 0 {
+                    if show_incomplete {
+                        println!("Missing files:");
+                        for (path, size) in missing_files.iter() {
+                            println!(
+                                "{} ({})",
+                                path.to_string_lossy(),
+                                bytes_to_human_readable(*size)
+                            );
+                        }
+                    }
                     println!(
                         "{} of {} files are missing from this release",
                         missing_files.len(),
                         file_count,
                     );
+                    let size: u64 = missing_files.iter().map(|(_, size)| size).sum();
+                    println!("Size: {}", bytes_to_human_readable(size));
                 }
                 if corrupt_files.len() > 0 {
+                    if show_incomplete {
+                        println!("Corrupt files:");
+                        for (path, size) in corrupt_files.iter() {
+                            println!(
+                                "{} ({})",
+                                path.to_string_lossy(),
+                                bytes_to_human_readable(*size)
+                            );
+                        }
+                    }
                     println!(
                         "{} of {} files are corrupted for this release",
                         corrupt_files.len(),
                         file_count,
                     );
+                    let size: u64 = corrupt_files.iter().map(|(_, size)| size).sum();
+                    println!("Size: {}", bytes_to_human_readable(size));
                 }
             }
             Some(VerificationOutcome::TorrentMissing) => {
@@ -424,7 +452,7 @@ impl Release {
         for file in files.iter() {
             let path = target_directory.join(file.path.clone());
             if !path.exists() {
-                missing_files.push((path.clone(), file.length as u64));
+                missing_files.push((file.path.clone(), file.length as u64));
             }
             missing_files_pb.inc(1);
         }
@@ -483,7 +511,7 @@ impl Release {
         for file in files.iter() {
             let path = target_directory.join(file.path.clone());
             if !path.exists() {
-                missing_files.push((path.clone(), file.length as u64));
+                missing_files.push((file.path.clone(), file.length as u64));
             }
         }
         if missing_files.len() == files.len() {
@@ -660,12 +688,17 @@ pub fn bytes_to_human_readable(bytes: u64) -> String {
     const TB: u64 = 1024 * 1024 * 1024 * 1024;
     const GB: u64 = 1024 * 1024 * 1024;
     const MB: u64 = 1024 * 1024;
+    const KB: u64 = 1024;
 
     if bytes >= TB {
         format!("{:.2} TB", bytes as f64 / TB as f64)
     } else if bytes >= GB {
         format!("{:.2} GB", bytes as f64 / GB as f64)
-    } else {
+    } else if bytes >= MB {
         format!("{:.2} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{bytes}")
     }
 }

@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use color_eyre::{eyre::eyre, Result};
 use dialoguer::Editor;
 use sept11_datasets::db::*;
-use sept11_datasets::{Release, VerificationOutcome};
+use sept11_datasets::{bytes_to_human_readable, Release, VerificationOutcome};
 use std::path::PathBuf;
 use url::Url;
 
@@ -122,6 +122,9 @@ enum Commands {
         /// If not supplied, all releases will be iterated.
         #[arg(long)]
         id: Option<String>,
+        /// Show the list of any missing or corrupt files
+        #[arg(long)]
+        show_incomplete: bool,
     },
     // Verify releases against their corresponding torrents
     Verify {
@@ -261,8 +264,12 @@ async fn main() -> Result<()> {
             let conn = get_db_connection(&db_path)?;
             let release = get_release_by_id(&conn, &id)?;
             let files = release.get_torrent_tree(&torrents_path)?;
-            for (path, _) in files.iter() {
-                println!("{}", path.to_string_lossy());
+            for (path, size) in files.iter() {
+                println!(
+                    "{} ({})",
+                    path.to_string_lossy(),
+                    bytes_to_human_readable(*size)
+                );
             }
             Ok(())
         }
@@ -311,12 +318,15 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Some(Commands::Status { id }) => {
+        Some(Commands::Status {
+            id,
+            show_incomplete,
+        }) => {
             let db_path = get_database_path()?;
             let conn = get_db_connection(&db_path)?;
             if let Some(id) = id {
                 let release = get_release_by_id(&conn, &id)?;
-                release.print_verification_status()?;
+                release.print_verification_status(show_incomplete)?;
             } else {
                 let releases = get_releases(&conn)?;
                 Release::print_status_table(&releases)?;
