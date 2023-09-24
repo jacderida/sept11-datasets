@@ -13,8 +13,8 @@ use sha1::{Digest, Sha1};
 use std::collections::HashSet;
 use std::fmt;
 use std::fs::File;
-use std::io::{Read, Seek};
-use std::path::PathBuf;
+use std::io::{BufRead, Read, Seek};
+use std::path::{Path, PathBuf};
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::time::{sleep, Duration};
@@ -27,7 +27,7 @@ pub enum VerificationOutcome {
     Complete,
     Verified,
     TorrentMissing,
-    Incomplete(Vec<PathBuf>, Vec<String>),
+    Incomplete(Vec<PathBuf>, Vec<PathBuf>),
     AllFilesMissing,
 }
 
@@ -227,7 +227,7 @@ impl Release {
     pub fn from_row(
         row: &Row,
         missing_files: &Vec<PathBuf>,
-        corrupt_files: &Vec<String>,
+        corrupt_files: &Vec<PathBuf>,
     ) -> Result<Release> {
         let id: String = row.get(0)?;
         let date: String = row.get(1)?;
@@ -453,7 +453,7 @@ impl Release {
             let metadata = std::fs::metadata(&path)?;
             let size = metadata.len();
             if size != file.length as u64 {
-                size_mismatches.push(path.to_string_lossy().to_string());
+                size_mismatches.push(path);
             }
             size_mismatch_pb.inc(1);
         }
@@ -552,7 +552,7 @@ impl Release {
                 if file_idx == files.len() {
                     break;
                 }
-                mismatched_files.insert(files[file_idx].path.to_string_lossy().to_string());
+                mismatched_files.insert(files[file_idx].path.clone());
                 // If the content doesn't match at any point, the rest of the hashes won't match,
                 // so we can just bail out here.
                 return Ok(VerificationOutcome::Incomplete(
@@ -566,6 +566,42 @@ impl Release {
         }
 
         Ok(VerificationOutcome::Verified)
+    }
+
+    pub fn mark_incomplete(
+        &mut self,
+        missing_files_path: Option<&Path>,
+        corrupt_files_path: Option<&Path>,
+    ) -> Result<()> {
+        if missing_files_path.is_none() && corrupt_files_path.is_none() {
+            return Err(Error::MarkIncompleteFilesNotSupplied);
+        }
+        let missing_files = if let Some(missing_files_path) = missing_files_path {
+            Self::read_file_lines_as_paths(missing_files_path)?
+        } else {
+            vec![]
+        };
+        let corrupt_files = if let Some(corrupt_files_path) = corrupt_files_path {
+            Self::read_file_lines_as_paths(corrupt_files_path)?
+        } else {
+            vec![]
+        };
+        self.verification_outcome = Some(VerificationOutcome::Incomplete(
+            missing_files,
+            corrupt_files,
+        ));
+        Ok(())
+    }
+
+    fn read_file_lines_as_paths(path: &Path) -> Result<Vec<PathBuf>> {
+        let file = File::open(path)?;
+        let reader = std::io::BufReader::new(file);
+        let mut paths: Vec<PathBuf> = Vec::new();
+        for line in reader.lines() {
+            let line = line?;
+            paths.push(PathBuf::from(line));
+        }
+        Ok(paths)
     }
 
     fn get_file_name_from_url(url: &Url) -> Result<String> {

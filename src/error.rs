@@ -9,6 +9,8 @@ pub enum Error {
     ArchiveFileNotFoundError(String),
     #[error("Error response when downloading file: {0}")]
     ArchiveDownloadFailed(u16),
+    #[error("To mark a release incomplete either missing or corrupt files must be supplied")]
+    MarkIncompleteFilesNotSupplied,
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]

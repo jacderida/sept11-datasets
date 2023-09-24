@@ -81,7 +81,7 @@ pub fn save_new_release(conn: &Connection, release: &Release) -> Result<()> {
         for path in corrupted {
             conn.execute(
                 "INSERT INTO incomplete_files (release_id, file_path, status) VALUES (?1, ?2, 'CORRUPTED')",
-                [&release.id, &path],
+                [&release.id, &path.to_string_lossy().to_string()],
             )?;
         }
     }
@@ -113,7 +113,7 @@ pub fn save_verification_result(conn: &mut Connection, release: &Release) -> Res
         for corrupted in corrupted_files.iter() {
             tx.execute(
                 "INSERT INTO incomplete_files (release_id, file_path, status) VALUES (?1, ?2, ?3)",
-                params![release.id, corrupted, "CORRUPTED"],
+                params![release.id, corrupted.to_str().unwrap(), "CORRUPTED"],
             )?;
         }
     }
@@ -200,7 +200,7 @@ pub fn get_release_by_id(conn: &Connection, release_id: &str) -> Result<Release>
 fn get_incomplete_verification_data(
     conn: &Connection,
     release_id: &str,
-) -> Result<(Vec<PathBuf>, Vec<String>)> {
+) -> Result<(Vec<PathBuf>, Vec<PathBuf>)> {
     // If the verification result was anything other than INCOMPLETE, the returned lists will be
     // empty.
     let mut missing_files = Vec::new();
@@ -218,7 +218,7 @@ fn get_incomplete_verification_data(
         if status == "MISSING" {
             missing_files.push(path);
         } else if status == "CORRUPTED" {
-            corrupted_files.push(path.to_string_lossy().into_owned());
+            corrupted_files.push(path);
         }
     }
     Ok((missing_files.clone(), corrupted_files.clone()))

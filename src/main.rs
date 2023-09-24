@@ -80,6 +80,22 @@ enum Commands {
         #[arg(long)]
         torrents_path: PathBuf,
     },
+    // Mark a release as incomplete.
+    //
+    // Provide the list of missing or corrupt files by pointing to a text file, where each line in
+    // the file is a path.
+    #[clap(name = "mark-incomplete", verbatim_doc_comment)]
+    MarkIncomplete {
+        /// The id of the release
+        #[arg(long)]
+        id: String,
+        /// Path to a file containing a list of missing files for the release
+        #[arg(long)]
+        missing_files_path: Option<PathBuf>,
+        /// Path to a file containing a list of corrupt files for the release
+        #[arg(long)]
+        corrupt_files_path: Option<PathBuf>,
+    },
     /// Add or edit notes for a release.
     ///
     /// Set the EDITOR variable to determine which editor will be used to compose the note.
@@ -157,7 +173,7 @@ async fn main() -> Result<()> {
                     } else {
                         println!("Files with size mismatch:");
                         for file in corrupted.iter() {
-                            println!("{}", file);
+                            println!("{}", file.to_string_lossy());
                         }
                     }
                 }
@@ -245,6 +261,20 @@ async fn main() -> Result<()> {
             for file in files.iter() {
                 println!("{}", file.to_string_lossy());
             }
+            Ok(())
+        }
+        Some(Commands::MarkIncomplete {
+            id,
+            missing_files_path,
+            corrupt_files_path,
+        }) => {
+            let db_path = get_database_path()?;
+            let mut conn = get_db_connection(&db_path)?;
+            let mut release = get_release_by_id(&conn, &id)?;
+            release
+                .mark_incomplete(missing_files_path.as_deref(), corrupt_files_path.as_deref())?;
+            save_verification_result(&mut conn, &mut release)?;
+            println!("Marked {} as incomplete", release.name);
             Ok(())
         }
         Some(Commands::Notes { id }) => {
