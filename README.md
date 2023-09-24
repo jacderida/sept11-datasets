@@ -29,7 +29,7 @@ is *exactly* the same as what was intended to be provided by the torrent.
 
 ## Setup
 
-There is some static data in the binary that can be used to initialise a SQLite database.
+There is some static data in the binary that gets used to initialise a SQLite database.
 
 You must first obtain the release torrent files. I am eventually going to provide a `download`
 command for this, but for now, they need to be obtained by some other means. The links are in the

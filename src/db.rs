@@ -1,6 +1,6 @@
 use crate::error::{Error, Result};
 use crate::{Release, VerificationOutcome};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
 
 pub fn get_db_connection<P: AsRef<Path>>(path: P) -> Result<Connection> {
@@ -31,16 +31,38 @@ pub fn create_db_schema(conn: &Connection) -> Result<()> {
         );",
         [],
     )?;
-    let has_notes_column: bool = conn
-        .query_row("PRAGMA table_info(releases);", [], |row| {
-            Ok(row.get::<_, String>(1)? == "notes")
-        })
-        .optional()?
-        .unwrap_or(false);
 
+    let mut has_notes_column = false;
+    let mut statement = conn.prepare("PRAGMA table_info(releases);")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == "notes" {
+            has_notes_column = true;
+            break;
+        }
+    }
     if !has_notes_column {
         conn.execute("ALTER TABLE releases ADD COLUMN notes TEXT;", [])?;
     }
+
+    let mut has_size_column = false;
+    let mut statement = conn.prepare("PRAGMA table_info(incomplete_files);")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == "size" {
+            has_size_column = true;
+            break;
+        }
+    }
+    if !has_size_column {
+        conn.execute(
+            "ALTER TABLE incomplete_files ADD COLUMN size INTEGER NOT NULL;",
+            [],
+        )?;
+    }
+
     Ok(())
 }
 
@@ -72,16 +94,26 @@ pub fn save_new_release(conn: &Connection, release: &Release) -> Result<()> {
 
     if let Some(VerificationOutcome::Incomplete(missing, corrupted)) = &release.verification_outcome
     {
-        for path in missing {
+        for (path, size) in missing {
             conn.execute(
-                "INSERT INTO incomplete_files (release_id, file_path, status) VALUES (?1, ?2, 'MISSING')",
-                [&release.id, &path.to_string_lossy().to_string()],
+                "INSERT INTO incomplete_files (release_id, file_path, status, size) \
+                    VALUES (?1, ?2, 'MISSING', ?3)",
+                [
+                    &release.id as &dyn rusqlite::ToSql,
+                    &path.to_string_lossy().to_string() as &dyn rusqlite::ToSql,
+                    &(*size as i64) as &dyn rusqlite::ToSql,
+                ],
             )?;
         }
-        for path in corrupted {
+        for (path, size) in corrupted {
             conn.execute(
-                "INSERT INTO incomplete_files (release_id, file_path, status) VALUES (?1, ?2, 'CORRUPTED')",
-                [&release.id, &path.to_string_lossy().to_string()],
+                "INSERT INTO incomplete_files (release_id, file_path, status, size) \
+                    VALUES (?1, ?2, 'CORRUPTED', ?3)",
+                [
+                    &release.id as &dyn rusqlite::ToSql,
+                    &path.to_string_lossy().to_string() as &dyn rusqlite::ToSql,
+                    &(*size as i64) as &dyn rusqlite::ToSql,
+                ],
             )?;
         }
     }
@@ -104,16 +136,18 @@ pub fn save_verification_result(conn: &mut Connection, release: &Release) -> Res
     )?;
 
     if let VerificationOutcome::Incomplete(missing_files, corrupted_files) = outcome {
-        for missing in missing_files.iter() {
+        for (path, size) in missing_files.iter() {
             tx.execute(
-                "INSERT INTO incomplete_files (release_id, file_path, status) VALUES (?1, ?2, ?3)",
-                params![release.id, missing.to_str().unwrap(), "MISSING"],
+                "INSERT INTO incomplete_files (release_id, file_path, status, size) \
+                    VALUES (?1, ?2, ?3, ?4)",
+                params![release.id, path.to_str().unwrap(), "MISSING", size],
             )?;
         }
-        for corrupted in corrupted_files.iter() {
+        for (path, size) in corrupted_files.iter() {
             tx.execute(
-                "INSERT INTO incomplete_files (release_id, file_path, status) VALUES (?1, ?2, ?3)",
-                params![release.id, corrupted.to_str().unwrap(), "CORRUPTED"],
+                "INSERT INTO incomplete_files (release_id, file_path, status, size) \
+                    VALUES (?1, ?2, ?3, ?4)",
+                params![release.id, path.to_str().unwrap(), "CORRUPTED", size],
             )?;
         }
     }
@@ -200,25 +234,26 @@ pub fn get_release_by_id(conn: &Connection, release_id: &str) -> Result<Release>
 fn get_incomplete_verification_data(
     conn: &Connection,
     release_id: &str,
-) -> Result<(Vec<PathBuf>, Vec<PathBuf>)> {
+) -> Result<(Vec<(PathBuf, u64)>, Vec<(PathBuf, u64)>)> {
     // If the verification result was anything other than INCOMPLETE, the returned lists will be
     // empty.
     let mut missing_files = Vec::new();
     let mut corrupted_files = Vec::new();
     let mut files_statement =
-        conn.prepare("SELECT file_path, status FROM incomplete_files WHERE release_id = ?1")?;
+        conn.prepare("SELECT file_path, status, size FROM incomplete_files WHERE release_id = ?1")?;
     let files_iter = files_statement.query_map([&release_id], |row| {
         let file_path: String = row.get(0)?;
         let status: String = row.get(1)?;
-        Ok((file_path, status))
+        let size: u64 = row.get(2)?;
+        Ok((file_path, status, size))
     })?;
     for file_result in files_iter {
-        let (file_path, status) = file_result?;
+        let (file_path, status, size) = file_result?;
         let path = PathBuf::from(file_path);
         if status == "MISSING" {
-            missing_files.push(path);
+            missing_files.push((path, size));
         } else if status == "CORRUPTED" {
-            corrupted_files.push(path);
+            corrupted_files.push((path, size));
         }
     }
     Ok((missing_files.clone(), corrupted_files.clone()))

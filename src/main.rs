@@ -95,6 +95,9 @@ enum Commands {
         /// Path to a file containing a list of corrupt files for the release
         #[arg(long)]
         corrupt_files_path: Option<PathBuf>,
+        /// Path to the directory containing the release torrent files
+        #[arg(long)]
+        torrents_path: PathBuf,
     },
     /// Add or edit notes for a release.
     ///
@@ -167,13 +170,13 @@ async fn main() -> Result<()> {
                     println!("Outcome: INCOMPLETE");
                     if !missing.is_empty() {
                         println!("Missing files:");
-                        for file in missing.iter() {
-                            println!("{}", file.to_string_lossy());
+                        for (path, _) in missing.iter() {
+                            println!("{}", path.to_string_lossy());
                         }
                     } else {
                         println!("Files with size mismatch:");
-                        for file in corrupted.iter() {
-                            println!("{}", file.to_string_lossy());
+                        for (path, _) in corrupted.iter() {
+                            println!("{}", path.to_string_lossy());
                         }
                     }
                 }
@@ -258,8 +261,8 @@ async fn main() -> Result<()> {
             let conn = get_db_connection(&db_path)?;
             let release = get_release_by_id(&conn, &id)?;
             let files = release.get_torrent_tree(&torrents_path)?;
-            for file in files.iter() {
-                println!("{}", file.to_string_lossy());
+            for (path, _) in files.iter() {
+                println!("{}", path.to_string_lossy());
             }
             Ok(())
         }
@@ -267,12 +270,16 @@ async fn main() -> Result<()> {
             id,
             missing_files_path,
             corrupt_files_path,
+            torrents_path,
         }) => {
             let db_path = get_database_path()?;
             let mut conn = get_db_connection(&db_path)?;
             let mut release = get_release_by_id(&conn, &id)?;
-            release
-                .mark_incomplete(missing_files_path.as_deref(), corrupt_files_path.as_deref())?;
+            release.mark_incomplete(
+                missing_files_path.as_deref(),
+                corrupt_files_path.as_deref(),
+                &torrents_path,
+            )?;
             save_verification_result(&mut conn, &mut release)?;
             println!("Marked {} as incomplete", release.name);
             Ok(())

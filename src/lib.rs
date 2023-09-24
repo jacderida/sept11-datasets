@@ -10,7 +10,6 @@ use lava_torrent::torrent::v1::Torrent;
 use prettytable::{color, Attr, Cell, Row as TableRow, Table};
 use rusqlite::Row;
 use sha1::{Digest, Sha1};
-use std::collections::HashSet;
 use std::fmt;
 use std::fs::File;
 use std::io::{BufRead, Read, Seek};
@@ -27,7 +26,7 @@ pub enum VerificationOutcome {
     Complete,
     Verified,
     TorrentMissing,
-    Incomplete(Vec<PathBuf>, Vec<PathBuf>),
+    Incomplete(Vec<(PathBuf, u64)>, Vec<(PathBuf, u64)>),
     AllFilesMissing,
 }
 
@@ -226,8 +225,8 @@ impl Release {
 
     pub fn from_row(
         row: &Row,
-        missing_files: &Vec<PathBuf>,
-        corrupt_files: &Vec<PathBuf>,
+        missing_files: &Vec<(PathBuf, u64)>,
+        corrupt_files: &Vec<(PathBuf, u64)>,
     ) -> Result<Release> {
         let id: String = row.get(0)?;
         let date: String = row.get(1)?;
@@ -310,14 +309,14 @@ impl Release {
         Ok(releases)
     }
 
-    pub fn get_torrent_tree(&self, torrents_path: &PathBuf) -> Result<Vec<PathBuf>> {
+    pub fn get_torrent_tree(&self, torrents_path: &PathBuf) -> Result<Vec<(PathBuf, u64)>> {
         let torrent_path = torrents_path.join(Self::get_file_name_from_url(&self.torrent_url)?);
         let torrent = Torrent::read_from_file(torrent_path)?;
         let files = torrent.files.ok_or_else(|| Error::TorrentFilesError)?;
         let tree = files
             .iter()
-            .map(|f| f.path.clone())
-            .collect::<Vec<PathBuf>>();
+            .map(|f| (f.path.clone(), f.length as u64))
+            .collect::<Vec<(PathBuf, u64)>>();
         Ok(tree)
     }
 
@@ -344,7 +343,7 @@ impl Release {
         );
 
         println!("Downloading files for {}...", self.name);
-        for path in tree.iter() {
+        for (path, _) in tree.iter() {
             let target_path = base_target_path.join(path);
             if !target_path.exists() {
                 let file_name = target_path.file_name().unwrap().to_string_lossy();
@@ -420,12 +419,12 @@ impl Release {
                 .progress_chars("#>-"),
         );
 
-        let mut missing_files = HashSet::new();
+        let mut missing_files = Vec::new();
         println!("Checking for missing files...");
         for file in files.iter() {
             let path = target_directory.join(file.path.clone());
             if !path.exists() {
-                missing_files.insert(path.clone());
+                missing_files.push((path.clone(), file.length as u64));
             }
             missing_files_pb.inc(1);
         }
@@ -434,10 +433,7 @@ impl Release {
         if missing_files.len() == files.len() {
             return Ok(VerificationOutcome::AllFilesMissing);
         } else if missing_files.len() > 0 {
-            return Ok(VerificationOutcome::Incomplete(
-                missing_files.into_iter().collect(),
-                vec![],
-            ));
+            return Ok(VerificationOutcome::Incomplete(missing_files, vec![]));
         }
 
         let size_mismatch_pb = ProgressBar::new(files.len() as u64);
@@ -453,7 +449,7 @@ impl Release {
             let metadata = std::fs::metadata(&path)?;
             let size = metadata.len();
             if size != file.length as u64 {
-                size_mismatches.push(path);
+                size_mismatches.push((path, file.length as u64));
             }
             size_mismatch_pb.inc(1);
         }
@@ -482,21 +478,18 @@ impl Release {
         let files = torrent.files.ok_or_else(|| Error::TorrentFilesError)?;
 
         // If any files are missing, we can bail out before attempting to verify the release.
-        let mut missing_files = HashSet::new();
+        let mut missing_files = Vec::new();
         println!("Checking for missing files...");
         for file in files.iter() {
             let path = target_directory.join(file.path.clone());
             if !path.exists() {
-                missing_files.insert(path.clone());
+                missing_files.push((path.clone(), file.length as u64));
             }
         }
         if missing_files.len() == files.len() {
             return Ok(VerificationOutcome::AllFilesMissing);
         } else if missing_files.len() > 0 {
-            return Ok(VerificationOutcome::Incomplete(
-                missing_files.into_iter().collect(),
-                vec![],
-            ));
+            return Ok(VerificationOutcome::Incomplete(missing_files, vec![]));
         }
 
         println!("All files are present. Will now attempt to verify them.");
@@ -508,7 +501,7 @@ impl Release {
                 .progress_chars("#>-"),
         );
 
-        let mut mismatched_files = HashSet::new();
+        let mut mismatched_files = Vec::new();
         let mut piece_idx = 0;
         let mut file_idx = 0;
         let mut offset: u64 = 0;
@@ -552,13 +545,12 @@ impl Release {
                 if file_idx == files.len() {
                     break;
                 }
-                mismatched_files.insert(files[file_idx].path.clone());
+                let file = &files[file_idx];
+                mismatched_files.push((file.path.clone(), file.length as u64));
                 // If the content doesn't match at any point, the rest of the hashes won't match,
-                // so we can just bail out here.
-                return Ok(VerificationOutcome::Incomplete(
-                    vec![],
-                    mismatched_files.into_iter().collect(),
-                ));
+                // so we can just bail here. We can really only get information about the file
+                // where the first mismatch occurred; however, there can be other corrupt files.
+                return Ok(VerificationOutcome::Incomplete(vec![], mismatched_files));
             }
 
             piece_idx += 1;
@@ -572,17 +564,19 @@ impl Release {
         &mut self,
         missing_files_path: Option<&Path>,
         corrupt_files_path: Option<&Path>,
+        torrents_path: &Path,
     ) -> Result<()> {
+        let tree = self.get_torrent_tree(&torrents_path.to_path_buf())?;
         if missing_files_path.is_none() && corrupt_files_path.is_none() {
             return Err(Error::MarkIncompleteFilesNotSupplied);
         }
         let missing_files = if let Some(missing_files_path) = missing_files_path {
-            Self::read_file_lines_as_paths(missing_files_path)?
+            Self::read_file_lines_as_paths_in_tree(missing_files_path, &tree)?
         } else {
             vec![]
         };
         let corrupt_files = if let Some(corrupt_files_path) = corrupt_files_path {
-            Self::read_file_lines_as_paths(corrupt_files_path)?
+            Self::read_file_lines_as_paths_in_tree(corrupt_files_path, &tree)?
         } else {
             vec![]
         };
@@ -593,13 +587,20 @@ impl Release {
         Ok(())
     }
 
-    fn read_file_lines_as_paths(path: &Path) -> Result<Vec<PathBuf>> {
+    fn read_file_lines_as_paths_in_tree(
+        path: &Path,
+        tree: &Vec<(PathBuf, u64)>,
+    ) -> Result<Vec<(PathBuf, u64)>> {
         let file = File::open(path)?;
         let reader = std::io::BufReader::new(file);
-        let mut paths: Vec<PathBuf> = Vec::new();
+        let mut paths: Vec<(PathBuf, u64)> = Vec::new();
         for line in reader.lines() {
             let line = line?;
-            paths.push(PathBuf::from(line));
+            let path_in_file = PathBuf::from(line);
+            let entry_in_tree = tree.iter().find(|f| f.0 == path_in_file).ok_or_else(|| {
+                Error::MarkIncompleteInvalidPath(path_in_file.to_string_lossy().to_string())
+            })?;
+            paths.push(entry_in_tree.clone());
         }
         Ok(paths)
     }
