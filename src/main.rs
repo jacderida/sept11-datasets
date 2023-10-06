@@ -1,9 +1,10 @@
 use clap::{Parser, Subcommand};
-use color_eyre::{eyre::eyre, Result};
+use color_eyre::Result;
 use dialoguer::Editor;
 use sept11_datasets::db::*;
-use sept11_datasets::{bytes_to_human_readable, Release, VerificationOutcome};
+use sept11_datasets::{bytes_to_human_readable, download_torrents, Release, VerificationOutcome};
 use std::path::PathBuf;
+use tempdir::TempDir;
 use url::Url;
 
 #[derive(Parser, Debug)]
@@ -27,9 +28,6 @@ enum Commands {
         /// Path to the directory containing the files for the release
         #[arg(long)]
         target_path: PathBuf,
-        /// Path to the directory containing the release torrent files
-        #[arg(long)]
-        torrents_path: PathBuf,
     },
     /// Download a release from the Internet Archive.
     ///
@@ -51,19 +49,14 @@ enum Commands {
         /// Path specifying where the files should be downloaded
         #[arg(long)]
         target_path: PathBuf,
-        /// Path to the directory containing the release torrent files
-        #[arg(long)]
-        torrents_path: PathBuf,
     },
     /// Build the release database from the torrent files.
     ///
+    /// The torrents are downloaded during this process.
+    ///
     /// If the database already exists, running this command again will add any new schema that
     /// needs to be created.
-    Init {
-        /// Path to the directory containing the release torrent files
-        #[arg(long)]
-        torrents_path: Option<PathBuf>,
-    },
+    Init {},
     // Print the releases
     Ls {
         /// Set to print the directory of the release rather than the name
@@ -76,9 +69,6 @@ enum Commands {
         /// The id of the release
         #[arg(long)]
         id: String,
-        /// Path to the directory containing the release torrent files
-        #[arg(long)]
-        torrents_path: PathBuf,
     },
     // Mark a release as incomplete.
     //
@@ -95,9 +85,6 @@ enum Commands {
         /// Path to a file containing a list of corrupt files for the release
         #[arg(long)]
         corrupt_files_path: Option<PathBuf>,
-        /// Path to the directory containing the release torrent files
-        #[arg(long)]
-        torrents_path: PathBuf,
     },
     /// Add or edit notes for a release.
     ///
@@ -136,9 +123,6 @@ enum Commands {
         /// Path to the directory containing the files for the release
         #[arg(long)]
         target_path: PathBuf,
-        /// Path to the directory containing the release torrent files
-        #[arg(long)]
-        torrents_path: PathBuf,
     },
 }
 
@@ -148,11 +132,7 @@ async fn main() -> Result<()> {
 
     let opt = Opt::parse();
     match opt.command {
-        Some(Commands::Check {
-            id,
-            target_path,
-            torrents_path,
-        }) => {
+        Some(Commands::Check { id, target_path }) => {
             let db_path = get_database_path()?;
             let conn = get_db_connection(&db_path)?;
             let mut release = get_release_by_id(&conn, &id)?;
@@ -161,7 +141,7 @@ async fn main() -> Result<()> {
                 println!("This release was previously verified");
                 verification_outcome.clone()
             } else {
-                let outcome = release.check(&torrents_path, &target_path)?;
+                let outcome = release.check(&target_path)?;
                 release.verification_outcome = Some(outcome.clone());
                 let mut conn = get_db_connection(get_database_path()?)?;
                 save_verification_result(&mut conn, &release)?;
@@ -193,7 +173,6 @@ async fn main() -> Result<()> {
             id,
             url,
             target_path,
-            torrents_path,
         }) => {
             let db_path = get_database_path()?;
             let conn = get_db_connection(&db_path)?;
@@ -201,33 +180,37 @@ async fn main() -> Result<()> {
             let _ = conn.close();
             let url = Url::parse(&url)?;
             release
-                .download_release_from_archive(&url, &torrents_path, &target_path)
+                .download_release_from_archive(&url, &target_path)
                 .await?;
             Ok(())
         }
-        Some(Commands::Init { torrents_path }) => {
+        Some(Commands::Init {}) => {
             let db_path = get_database_path()?;
             if db_path.exists() {
                 let conn = get_db_connection(&db_path)?;
                 create_db_schema(&conn)?;
                 println!("Updated database schema");
+
+                let temp_dir = TempDir::new("torrents")?;
+                download_torrents(&conn, &temp_dir.into_path()).await?;
                 return Ok(());
             }
 
+            let db_path = get_database_path()?;
+            let conn = get_db_connection(&db_path)?;
+            create_db_schema(&conn)?;
+
+            let temp_dir = TempDir::new("torrents")?;
+            let temp_path = temp_dir.into_path().clone();
+            download_torrents(&conn, &temp_path).await?;
+
             println!("Building releases from static data...");
-            let releases = Release::init_releases(torrents_path.ok_or_else(|| {
-                eyre!(
-                "When creating the database for the first time, the --torrents-path argument must \
-                be supplied")
-            })?)?;
+            let releases = Release::init_releases(temp_path)?;
             for release in releases.iter() {
                 println!("{release}");
             }
 
             println!("Saving releases to new database...");
-            let db_path = get_database_path()?;
-            let conn = get_db_connection(&db_path)?;
-            create_db_schema(&conn)?;
             for release in releases.iter() {
                 save_new_release(&conn, &release)?;
             }
@@ -259,11 +242,11 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Some(Commands::LsFiles { id, torrents_path }) => {
+        Some(Commands::LsFiles { id }) => {
             let db_path = get_database_path()?;
             let conn = get_db_connection(&db_path)?;
             let release = get_release_by_id(&conn, &id)?;
-            let files = release.get_torrent_tree(&torrents_path)?;
+            let files = release.get_torrent_tree()?;
             for (path, size) in files.iter() {
                 println!(
                     "{} ({})",
@@ -271,22 +254,19 @@ async fn main() -> Result<()> {
                     bytes_to_human_readable(*size)
                 );
             }
+            let _ = conn.close();
             Ok(())
         }
         Some(Commands::MarkIncomplete {
             id,
             missing_files_path,
             corrupt_files_path,
-            torrents_path,
         }) => {
             let db_path = get_database_path()?;
             let mut conn = get_db_connection(&db_path)?;
             let mut release = get_release_by_id(&conn, &id)?;
-            release.mark_incomplete(
-                missing_files_path.as_deref(),
-                corrupt_files_path.as_deref(),
-                &torrents_path,
-            )?;
+            release
+                .mark_incomplete(missing_files_path.as_deref(), corrupt_files_path.as_deref())?;
             save_verification_result(&mut conn, &mut release)?;
             println!("Marked {} as incomplete", release.name);
             Ok(())
@@ -341,11 +321,7 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Some(Commands::Verify {
-            id,
-            target_path,
-            torrents_path,
-        }) => {
+        Some(Commands::Verify { id, target_path }) => {
             // The release verification process can potentially take a very long time, so the
             // database connection will not be left open while that's running.
             // We'll open a new connection at the end of verification and use that to save the
@@ -355,12 +331,12 @@ async fn main() -> Result<()> {
             if let Some(id) = id {
                 let mut release = get_release_by_id(&conn, &id)?;
                 let _ = conn.close();
-                verify_release(&mut release, &torrents_path, &target_path)?;
+                verify_release(&mut release, &target_path)?;
             } else {
                 let mut releases = get_releases(&conn)?;
                 let _ = conn.close();
                 for mut release in releases.iter_mut() {
-                    verify_release(&mut release, &torrents_path, &target_path)?;
+                    verify_release(&mut release, &target_path)?;
                 }
             }
             Ok(())
@@ -369,17 +345,13 @@ async fn main() -> Result<()> {
     }
 }
 
-fn verify_release(
-    release: &mut Release,
-    torrents_path: &PathBuf,
-    target_path: &PathBuf,
-) -> Result<()> {
+fn verify_release(release: &mut Release, target_path: &PathBuf) -> Result<()> {
     println!("Processing release: {}", release.name);
     let outcome = if let Some(verification_outcome) = &release.verification_outcome {
         println!("This release was previously verified");
         verification_outcome.clone()
     } else {
-        let outcome = release.verify(torrents_path, target_path)?;
+        let outcome = release.verify(target_path)?;
         release.verification_outcome = Some(outcome.clone());
 
         let mut conn = get_db_connection(get_database_path()?)?;
@@ -398,15 +370,4 @@ fn verify_release(
         }
     }
     Ok(())
-}
-
-fn get_database_path() -> Result<PathBuf> {
-    let path = dirs_next::data_dir()
-        .ok_or_else(|| eyre!("Could not retrieve data directory"))?
-        .join("sept11-datasets");
-    if !path.exists() {
-        std::fs::create_dir_all(path.clone())?;
-    }
-    let db_path = path.join("releases.db");
-    Ok(db_path)
 }

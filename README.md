@@ -29,14 +29,11 @@ is *exactly* the same as what was intended to be provided by the torrent.
 
 ## Setup
 
-There is some static data in the binary that gets used to initialise a SQLite database.
+There is some static data in the binary that gets used to initialise a SQLite database with the
+release data. The torrents are downloaded and stored in the database.
 
-You must first obtain the release torrent files. I am eventually going to provide a `download`
-command for this, but for now, they need to be obtained by some other means. The links are in the
-[static data](src/release_data.rs). Once you have the torrents, put them in a directory, e.g.,
-`resources/torrents`, and run this command:
 ```
-cargo run -- init --torrents-path resources/torrents
+cargo run -- init
 ```
 
 A database will be saved at `~/.local/share/sept11-datasets/releases.db`.
@@ -45,7 +42,7 @@ A database will be saved at `~/.local/share/sept11-datasets/releases.db`.
 
 To verify all releases:
 ```
-cargo run -- verify --target-path <releases directory> --torrents-path resources/torrents
+cargo run -- verify --target-path <releases directory>
 ```
 
 It will take *many* hours to verify all the releases.
@@ -53,7 +50,7 @@ It will take *many* hours to verify all the releases.
 If you want to verify a release individually:
 ```
 cargo run -- ls # obtain the ID of the release
-cargo run -- verify --id <release-id> --target-path <releases-directory> --torrents-path resources/torrents
+cargo run -- verify --id <release-id> --target-path <releases-directory>
 ```
 
 ## Downloading Releases
@@ -62,7 +59,6 @@ Some of the releases, like the NIST FOIA 09 series, are on the archive. They hav
 ```
 cargo run -- download-release \
   --id 34f28513edfaa80a46bd627195f8ea4ae573d914 \
-  --torrents-path resources/torrents \
   --target-path /mnt/sept11-archive/9-11-archive/911datasets.org \
   --url https://archive.org/download/NIST_9-11_Release_01
 ```
@@ -78,8 +74,7 @@ After the release has been downloaded, verify it:
 ```
 cargo run -- verify \
   --id 34f28513edfaa80a46bd627195f8ea4ae573d914 \
-  --target-path /mnt/sept11-archive/9-11-archive/911datasets.org/ \
-  --torrents-path resources/torrents
+  --target-path /mnt/sept11-archive/9-11-archive/911datasets.org
 ```
 
 ## Useful Links

@@ -2,13 +2,14 @@ pub mod db;
 pub mod error;
 pub mod release_data;
 
+use crate::db::{get_torrent_content, save_torrent, torrent_already_saved};
 use crate::error::{Error, Result};
 use crate::release_data::RELEASE_DATA;
 use colored::*;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use lava_torrent::torrent::v1::Torrent;
 use prettytable::{color, Attr, Cell, Row as TableRow, Table};
-use rusqlite::Row;
+use rusqlite::{Connection, Row};
 use sha1::{Digest, Sha1};
 use std::fmt;
 use std::fs::File;
@@ -50,7 +51,7 @@ pub struct Release {
     pub file_count: Option<usize>,
     pub notes: Option<String>,
     pub size: Option<u64>,
-    pub torrent_url: Url,
+    pub torrent_url: Option<Url>,
     pub verification_outcome: Option<VerificationOutcome>,
 }
 
@@ -76,7 +77,7 @@ impl Release {
         directory: Option<String>,
         file_count: Option<usize>,
         size: Option<u64>,
-        torrent_url: Url,
+        torrent_url: Option<Url>,
     ) -> Self {
         let id = Release::generate_id(&date, &name);
         Self {
@@ -262,8 +263,8 @@ impl Release {
         let directory: Option<String> = row.get(3)?;
         let file_count: Option<usize> = row.get(4)?;
         let size: Option<u64> = row.get(5)?;
-        let torrent_url: String = row.get(6)?;
-        let torrent_url = Url::parse(&torrent_url).unwrap();
+        let torrent_url: Option<String> = row.get(6)?;
+        let torrent_url = torrent_url.map(|u| Url::parse(&u).unwrap());
         let verification_outcome: String = row.get(7)?;
         let verification_outcome = match verification_outcome.as_str() {
             "COMPLETE" => Some(VerificationOutcome::Complete),
@@ -298,11 +299,16 @@ impl Release {
             let torrent_url = item.1.to_string();
             let name = item.2.to_string();
 
-            let url = Url::parse(&torrent_url)?;
-            let file_name = Self::get_file_name_from_url(&url)?;
-            let torrent_path = torrents_path.join(file_name);
-            let (directory, file_count, size) = if torrent_path.exists() {
-                match Torrent::read_from_file(torrent_path.clone()) {
+            let (url, torrent_path) = if !torrent_url.is_empty() {
+                let torrent_url = Url::parse(&torrent_url)?;
+                let file_name = get_file_name_from_url(&torrent_url)?;
+                let torrent_path = torrents_path.join(file_name);
+                (Some(torrent_url), Some(torrent_path))
+            } else {
+                (None, None)
+            };
+            let (directory, file_count, size) = if let Some(path) = torrent_path {
+                match Torrent::read_from_file(path.clone()) {
                     Ok(torrent) => {
                         let files = torrent.files.ok_or_else(|| Error::TorrentFilesError)?;
                         let first_file = &files[0];
@@ -337,9 +343,9 @@ impl Release {
         Ok(releases)
     }
 
-    pub fn get_torrent_tree(&self, torrents_path: &PathBuf) -> Result<Vec<(PathBuf, u64)>> {
-        let torrent_path = torrents_path.join(Self::get_file_name_from_url(&self.torrent_url)?);
-        let torrent = Torrent::read_from_file(torrent_path)?;
+    pub fn get_torrent_tree(&self) -> Result<Vec<(PathBuf, u64)>> {
+        let torrent_content = get_torrent_content(&self.id)?;
+        let torrent = Torrent::read_from_bytes(torrent_content)?;
         let files = torrent.files.ok_or_else(|| Error::TorrentFilesError)?;
         let tree = files
             .iter()
@@ -351,10 +357,9 @@ impl Release {
     pub async fn download_release_from_archive(
         &self,
         base_url: &Url,
-        torrents_path: &PathBuf,
         base_target_path: &PathBuf,
     ) -> Result<()> {
-        let tree = self.get_torrent_tree(&torrents_path)?;
+        let tree = self.get_torrent_tree()?;
         let multi_progress = MultiProgress::new();
         let total_pb = multi_progress.add(ProgressBar::new(tree.len() as u64));
         total_pb.set_style(
@@ -394,7 +399,7 @@ impl Release {
                 }
                 let mut retries = 10;
                 loop {
-                    match Self::download_file(&url, &target_path, &file_pb).await {
+                    match download_file(&url, &target_path, &file_pb).await {
                         Ok(_) => {
                             file_pb.finish_with_message("Download completed");
                             break;
@@ -427,17 +432,13 @@ impl Release {
         Ok(())
     }
 
-    pub fn check(
-        &self,
-        torrents_path: &PathBuf,
-        target_directory: &PathBuf,
-    ) -> Result<VerificationOutcome> {
-        if self.file_count.is_none() {
+    pub fn check(&self, target_directory: &PathBuf) -> Result<VerificationOutcome> {
+        if self.torrent_url.is_none() {
             return Ok(VerificationOutcome::TorrentMissing);
         }
 
-        let torrent_path = torrents_path.join(Self::get_file_name_from_url(&self.torrent_url)?);
-        let torrent = Torrent::read_from_file(torrent_path)?;
+        let torrent_content = get_torrent_content(&self.id)?;
+        let torrent = Torrent::read_from_bytes(torrent_content)?;
         let files = torrent.files.ok_or_else(|| Error::TorrentFilesError)?;
 
         let missing_files_pb = ProgressBar::new(files.len() as u64);
@@ -490,17 +491,13 @@ impl Release {
         Ok(VerificationOutcome::Complete)
     }
 
-    pub fn verify(
-        &self,
-        torrents_path: &PathBuf,
-        target_directory: &PathBuf,
-    ) -> Result<VerificationOutcome> {
-        if self.file_count.is_none() {
+    pub fn verify(&self, target_directory: &PathBuf) -> Result<VerificationOutcome> {
+        if self.torrent_url.is_none() {
             return Ok(VerificationOutcome::TorrentMissing);
         }
 
-        let torrent_path = torrents_path.join(Self::get_file_name_from_url(&self.torrent_url)?);
-        let torrent = Torrent::read_from_file(torrent_path)?;
+        let torrent_content = get_torrent_content(&self.id)?;
+        let torrent = Torrent::read_from_bytes(torrent_content)?;
         let piece_length = torrent.piece_length;
         let num_pieces = torrent.pieces.len();
         let files = torrent.files.ok_or_else(|| Error::TorrentFilesError)?;
@@ -592,9 +589,8 @@ impl Release {
         &mut self,
         missing_files_path: Option<&Path>,
         corrupt_files_path: Option<&Path>,
-        torrents_path: &Path,
     ) -> Result<()> {
-        let tree = self.get_torrent_tree(&torrents_path.to_path_buf())?;
+        let tree = self.get_torrent_tree()?;
         if missing_files_path.is_none() && corrupt_files_path.is_none() {
             return Err(Error::MarkIncompleteFilesNotSupplied);
         }
@@ -632,56 +628,6 @@ impl Release {
         }
         Ok(paths)
     }
-
-    fn get_file_name_from_url(url: &Url) -> Result<String> {
-        let file_name = url
-            .path_segments()
-            .ok_or(Error::PathSegmentsParseError)?
-            .last()
-            .ok_or(Error::PathSegmentsParseError)?;
-        Ok(file_name.to_string())
-    }
-
-    async fn download_file(url: &Url, target_path: &PathBuf, file_pb: &ProgressBar) -> Result<()> {
-        let client = reqwest::Client::new();
-        let mut request_builder = client.get(url.clone());
-        let tmp_path = target_path.with_extension("part");
-
-        let mut start = 0;
-        if tmp_path.exists() {
-            start = tokio::fs::metadata(&tmp_path).await?.len() as usize;
-            file_pb.set_position(start as u64);
-            request_builder = request_builder.header("Range", format!("bytes={}-", start));
-        }
-
-        let mut response = request_builder.send().await?;
-        if response.status() == 404 {
-            return Err(Error::ArchiveFileNotFoundError(url.to_string()));
-        }
-        if !response.status().is_success() {
-            return Err(Error::ArchiveDownloadFailed(response.status().into()));
-        }
-
-        if let Some(len) = response.content_length() {
-            file_pb.set_length(len);
-        }
-        let file = if start > 0 {
-            OpenOptions::new().append(true).open(&tmp_path).await?
-        } else {
-            tokio::fs::File::create(&tmp_path).await?
-        };
-
-        let mut writer = BufWriter::new(file);
-        while let Some(chunk) = response.chunk().await? {
-            writer.write_all(&chunk).await?;
-            file_pb.inc(chunk.len() as u64);
-        }
-
-        writer.flush().await?;
-        tokio::fs::rename(&tmp_path, target_path).await?;
-
-        Ok(())
-    }
 }
 
 pub fn bytes_to_human_readable(bytes: u64) -> String {
@@ -701,4 +647,105 @@ pub fn bytes_to_human_readable(bytes: u64) -> String {
     } else {
         format!("{bytes}")
     }
+}
+
+fn get_file_name_from_url(url: &Url) -> Result<String> {
+    let file_name = url
+        .path_segments()
+        .ok_or(Error::PathSegmentsParseError)?
+        .last()
+        .ok_or(Error::PathSegmentsParseError)?;
+    Ok(file_name.to_string())
+}
+
+pub async fn download_file(url: &Url, target_path: &PathBuf, file_pb: &ProgressBar) -> Result<()> {
+    let client = reqwest::Client::new();
+    let mut request_builder = client.get(url.clone());
+    let tmp_path = target_path.with_extension("part");
+
+    let mut start = 0;
+    if tmp_path.exists() {
+        start = tokio::fs::metadata(&tmp_path).await?.len() as usize;
+        file_pb.set_position(start as u64);
+        request_builder = request_builder.header("Range", format!("bytes={}-", start));
+    }
+
+    let mut response = request_builder.send().await?;
+    if response.status() == 404 {
+        return Err(Error::ArchiveFileNotFoundError(url.to_string()));
+    }
+    if !response.status().is_success() {
+        return Err(Error::ArchiveDownloadFailed(response.status().into()));
+    }
+
+    if let Some(len) = response.content_length() {
+        file_pb.set_length(len);
+    }
+    let file = if start > 0 {
+        OpenOptions::new().append(true).open(&tmp_path).await?
+    } else {
+        tokio::fs::File::create(&tmp_path).await?
+    };
+
+    let mut writer = BufWriter::new(file);
+    while let Some(chunk) = response.chunk().await? {
+        writer.write_all(&chunk).await?;
+        file_pb.inc(chunk.len() as u64);
+    }
+
+    writer.flush().await?;
+    tokio::fs::rename(&tmp_path, target_path).await?;
+
+    Ok(())
+}
+
+pub async fn download_torrents(conn: &Connection, target_path: &PathBuf) -> Result<()> {
+    println!(
+        "Saving torrents to temporary directory at {}",
+        target_path.to_string_lossy()
+    );
+
+    let multi_progress = MultiProgress::new();
+    let total_pb = multi_progress.add(ProgressBar::new(RELEASE_DATA.len() as u64));
+    total_pb.set_style(
+        ProgressStyle::default_bar()
+            .template("Overall progress: [{bar:40.cyan/blue}] {pos}/{len} files")?
+            .progress_chars("#>-"),
+    );
+    let file_pb = multi_progress.add(ProgressBar::new(0));
+    file_pb.set_style(
+        ProgressStyle::default_bar()
+            .template(
+                "{prefix:.bold.dim} [{bar:30.green/blue}] {bytes}/{total_bytes} {bytes_per_sec}",
+            )?
+            .progress_chars("=> "),
+    );
+
+    for item in RELEASE_DATA.iter() {
+        let date = item.0.to_string();
+        let torrent_url = item.1.to_string();
+        let name = item.2.to_string();
+        let release_id = Release::generate_id(&date, &name);
+
+        if torrent_url.is_empty() || torrent_already_saved(&conn, &release_id)? {
+            total_pb.inc(1);
+            continue;
+        }
+
+        let torrent_url = Url::parse(&torrent_url)?;
+        let file_name = get_file_name_from_url(&torrent_url)?;
+        let torrent_path = target_path.join(file_name.clone());
+
+        file_pb.set_prefix(format!("Downloading: {}", file_name));
+        file_pb.set_position(0);
+
+        download_file(&torrent_url, &torrent_path, &file_pb).await?;
+        file_pb.finish_with_message("Download completed");
+
+        let content = std::fs::read(&torrent_path)?;
+        save_torrent(&conn, &release_id, &file_name, &content)?;
+
+        total_pb.inc(1);
+    }
+    Ok(())
 }

@@ -9,6 +9,8 @@ pub enum Error {
     ArchiveFileNotFoundError(String),
     #[error("Error response when downloading file: {0}")]
     ArchiveDownloadFailed(u16),
+    #[error("Could not obtain the user's data directory")]
+    CouldNotObtainDataDirectory,
     #[error("Path {0} is not a valid path in the torrent tree")]
     MarkIncompleteInvalidPath(String),
     #[error("To mark a release incomplete either missing or corrupt files must be supplied")]

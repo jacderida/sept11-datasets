@@ -31,6 +31,14 @@ pub fn create_db_schema(conn: &Connection) -> Result<()> {
         );",
         [],
     )?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS torrents (
+            release_id TEXT PRIMARY KEY NOT NULL,
+            filename TEXT NOT NULL,
+            content BLOB NOT NULL
+        );",
+        [],
+    )?;
 
     let mut has_notes_column = false;
     let mut statement = conn.prepare("PRAGMA table_info(releases);")?;
@@ -66,6 +74,26 @@ pub fn create_db_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+pub fn torrent_already_saved(conn: &Connection, release_id: &str) -> Result<bool> {
+    let mut stmt = conn.prepare("SELECT 1 FROM torrents WHERE release_id = ?;")?;
+    let rows = stmt.query_map(params![release_id], |_| Ok(()))?;
+    let count = rows.fold(0, |acc, _| acc + 1);
+    Ok(count > 0)
+}
+
+pub fn save_torrent(
+    conn: &Connection,
+    release_id: &str,
+    filename: &str,
+    content: &[u8],
+) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO torrents (release_id, filename, content) VALUES (?, ?, ?);",
+        params![release_id, filename, content],
+    )?;
+    Ok(())
+}
+
 pub fn save_new_release(conn: &Connection, release: &Release) -> Result<()> {
     let file_count: Option<i64> = release.file_count.map(|v| v as i64);
     let size: Option<i64> = release.size.map(|v| v as i64);
@@ -77,6 +105,12 @@ pub fn save_new_release(conn: &Connection, release: &Release) -> Result<()> {
         Some(VerificationOutcome::AllFilesMissing) => "MISSING".to_string(),
         None => "UNKNOWN".to_string(),
     };
+    let torrent_url = release
+        .torrent_url
+        .clone()
+        .map(|u| u.to_string())
+        .unwrap_or("".to_string());
+
     conn.execute(
         "INSERT INTO releases (id, date, name, directory, file_count, size, torrent_url, verification_outcome) \
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -87,7 +121,7 @@ pub fn save_new_release(conn: &Connection, release: &Release) -> Result<()> {
             &release.directory,
             &file_count,
             &size,
-            &release.torrent_url.to_string(),
+            &torrent_url,
             &verification_status
         ],
     )?;
@@ -231,6 +265,19 @@ pub fn get_release_by_id(conn: &Connection, release_id: &str) -> Result<Release>
     Err(Error::ReleaseNotFound(release_id.to_string()))
 }
 
+/// Gets the torrent content for a release.
+///
+/// This is a self contained function that will do its own connection management.
+///
+/// Note: explicitly closing the connection is not necessary; it will close when it goes out of
+/// scope.
+pub fn get_torrent_content(release_id: &str) -> Result<Vec<u8>> {
+    let conn = get_db_connection(&get_database_path()?)?;
+    let mut statement = conn.prepare("SELECT content FROM torrents WHERE release_id = ?;")?;
+    let content: Vec<u8> = statement.query_row(params![release_id], |row| row.get(0))?;
+    Ok(content)
+}
+
 fn get_incomplete_verification_data(
     conn: &Connection,
     release_id: &str,
@@ -257,4 +304,15 @@ fn get_incomplete_verification_data(
         }
     }
     Ok((missing_files.clone(), corrupted_files.clone()))
+}
+
+pub fn get_database_path() -> Result<PathBuf> {
+    let path = dirs_next::data_dir()
+        .ok_or_else(|| Error::CouldNotObtainDataDirectory)?
+        .join("sept11-datasets");
+    if !path.exists() {
+        std::fs::create_dir_all(path.clone())?;
+    }
+    let db_path = path.join("releases.db");
+    Ok(db_path)
 }
