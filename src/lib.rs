@@ -52,6 +52,7 @@ pub struct Release {
     pub notes: Option<String>,
     pub size: Option<u64>,
     pub torrent_url: Option<Url>,
+    pub download_url: Option<Url>,
     pub verification_outcome: Option<VerificationOutcome>,
 }
 
@@ -78,6 +79,7 @@ impl Release {
         file_count: Option<usize>,
         size: Option<u64>,
         torrent_url: Option<Url>,
+        download_url: Option<Url>,
     ) -> Self {
         let id = Release::generate_id(&date, &name);
         Self {
@@ -89,6 +91,7 @@ impl Release {
             notes: None,
             size,
             torrent_url,
+            download_url,
             verification_outcome: None,
         }
     }
@@ -264,7 +267,15 @@ impl Release {
         let file_count: Option<usize> = row.get(4)?;
         let size: Option<u64> = row.get(5)?;
         let torrent_url: Option<String> = row.get(6)?;
-        let torrent_url = torrent_url.map(|u| Url::parse(&u).unwrap());
+        let torrent_url = if let Some(url) = torrent_url {
+            if !url.is_empty() {
+                Some(Url::parse(&url).unwrap())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         let verification_outcome: String = row.get(7)?;
         let verification_outcome = match verification_outcome.as_str() {
             "COMPLETE" => Some(VerificationOutcome::Complete),
@@ -279,6 +290,16 @@ impl Release {
             _ => None,
         };
         let notes: Option<String> = row.get(8)?;
+        let download_url: Option<String> = row.get(9)?;
+        let download_url = if let Some(url) = download_url {
+            if !url.is_empty() {
+                Some(Url::parse(&url).unwrap())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         Ok(Release {
             id,
             date,
@@ -288,8 +309,77 @@ impl Release {
             notes,
             size,
             torrent_url,
+            download_url,
             verification_outcome,
         })
+    }
+
+    pub fn reinit_releases(releases: &mut Vec<Release>) -> Result<()> {
+        for item in RELEASE_DATA.iter() {
+            let date = item.0.to_string();
+            let torrent_url = item.1.to_string();
+            let name = item.2.to_string();
+            let download_url = item.3.to_string();
+            let release_id = Release::generate_id(&date, &name);
+
+            let download_url = if !download_url.is_empty() {
+                let url = Url::parse(&download_url)?;
+                Some(url)
+            } else {
+                None
+            };
+
+            let torrent_url = if !torrent_url.is_empty() {
+                let url = Url::parse(&torrent_url)?;
+                Some(url)
+            } else {
+                None
+            };
+
+            if let Some(release) = releases.iter_mut().find(|r| r.id == release_id) {
+                release.id = release_id.clone();
+                release.date = date;
+                release.name = name;
+                let (directory, file_count, size) = if torrent_url.is_some() {
+                    let torrent_content = get_torrent_content(&release_id)?;
+                    match Torrent::read_from_bytes(torrent_content) {
+                        Ok(torrent) => {
+                            let files = torrent.files.ok_or_else(|| Error::TorrentFilesError)?;
+                            let first_file = &files[0];
+                            // We want to store the directory below '911datasets.org'.
+                            let directory: String = {
+                                let mut ancestors = first_file.path.ancestors();
+                                let mut second_to_last = None;
+                                let mut last = ancestors.next();
+                                while let Some(current) = ancestors.next() {
+                                    second_to_last = last;
+                                    last = Some(current);
+                                }
+                                second_to_last
+                                    .map(|p| p.to_path_buf())
+                                    .ok_or_else(|| Error::ReleaseDirectoryNotObtained)?
+                                    .to_string_lossy()
+                                    .to_string()
+                            };
+                            let mut size = 0;
+                            for file in files.iter() {
+                                size += file.length;
+                            }
+                            (Some(directory), Some(files.len()), Some(size as u64))
+                        }
+                        Err(_) => (None, None, None),
+                    }
+                } else {
+                    (None, None, None)
+                };
+                release.directory = directory;
+                release.file_count = file_count;
+                release.size = size;
+                release.download_url = download_url;
+                release.torrent_url = torrent_url;
+            }
+        }
+        Ok(())
     }
 
     pub fn init_releases(torrents_path: PathBuf) -> Result<Vec<Release>> {
@@ -298,15 +388,24 @@ impl Release {
             let date = item.0.to_string();
             let torrent_url = item.1.to_string();
             let name = item.2.to_string();
+            let download_url = item.3.to_string();
 
-            let (url, torrent_path) = if !torrent_url.is_empty() {
-                let torrent_url = Url::parse(&torrent_url)?;
-                let file_name = get_file_name_from_url(&torrent_url)?;
+            let download_url = if !download_url.is_empty() {
+                let url = Url::parse(&download_url)?;
+                Some(url)
+            } else {
+                None
+            };
+
+            let (torrent_url, torrent_path) = if !torrent_url.is_empty() {
+                let url = Url::parse(&torrent_url)?;
+                let file_name = get_file_name_from_url(&url)?;
                 let torrent_path = torrents_path.join(file_name);
-                (Some(torrent_url), Some(torrent_path))
+                (Some(url), Some(torrent_path))
             } else {
                 (None, None)
             };
+
             let (directory, file_count, size) = if let Some(path) = torrent_path {
                 match Torrent::read_from_file(path.clone()) {
                     Ok(torrent) => {
@@ -338,7 +437,15 @@ impl Release {
             } else {
                 (None, None, None)
             };
-            releases.push(Release::new(date, name, directory, file_count, size, url));
+            releases.push(Release::new(
+                date,
+                name,
+                directory,
+                file_count,
+                size,
+                torrent_url,
+                download_url,
+            ));
         }
         Ok(releases)
     }

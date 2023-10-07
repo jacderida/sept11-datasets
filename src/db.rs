@@ -40,6 +40,7 @@ pub fn create_db_schema(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    let mut has_download_url_column = false;
     let mut has_notes_column = false;
     let mut statement = conn.prepare("PRAGMA table_info(releases);")?;
     let mut rows = statement.query([])?;
@@ -47,11 +48,15 @@ pub fn create_db_schema(conn: &Connection) -> Result<()> {
         let name: String = row.get(1)?;
         if name == "notes" {
             has_notes_column = true;
-            break;
+        } else if name == "download_url" {
+            has_download_url_column = true;
         }
     }
     if !has_notes_column {
         conn.execute("ALTER TABLE releases ADD COLUMN notes TEXT;", [])?;
+    }
+    if !has_download_url_column {
+        conn.execute("ALTER TABLE releases ADD COLUMN download_url TEXT;", [])?;
     }
 
     let mut has_size_column = false;
@@ -94,7 +99,7 @@ pub fn save_torrent(
     Ok(())
 }
 
-pub fn save_new_release(conn: &Connection, release: &Release) -> Result<()> {
+pub fn save_release(conn: &Connection, release: &Release) -> Result<()> {
     let file_count: Option<i64> = release.file_count.map(|v| v as i64);
     let size: Option<i64> = release.size.map(|v| v as i64);
     let verification_status = match &release.verification_outcome {
@@ -110,10 +115,16 @@ pub fn save_new_release(conn: &Connection, release: &Release) -> Result<()> {
         .clone()
         .map(|u| u.to_string())
         .unwrap_or("".to_string());
+    let download_url = release
+        .download_url
+        .clone()
+        .map(|u| u.to_string())
+        .unwrap_or("".to_string());
 
     conn.execute(
-        "INSERT INTO releases (id, date, name, directory, file_count, size, torrent_url, verification_outcome) \
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT OR REPLACE INTO releases (id, date, name, \
+            directory, file_count, size, torrent_url, download_url, verification_outcome) \
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         &[
             &release.id as &dyn rusqlite::ToSql,
             &release.date,
@@ -122,7 +133,8 @@ pub fn save_new_release(conn: &Connection, release: &Release) -> Result<()> {
             &file_count,
             &size,
             &torrent_url,
-            &verification_status
+            &download_url,
+            &verification_status,
         ],
     )?;
 
@@ -130,7 +142,7 @@ pub fn save_new_release(conn: &Connection, release: &Release) -> Result<()> {
     {
         for (path, size) in missing {
             conn.execute(
-                "INSERT INTO incomplete_files (release_id, file_path, status, size) \
+                "INSERT OR REPLACE INTO incomplete_files (release_id, file_path, status, size) \
                     VALUES (?1, ?2, 'MISSING', ?3)",
                 [
                     &release.id as &dyn rusqlite::ToSql,
@@ -141,7 +153,7 @@ pub fn save_new_release(conn: &Connection, release: &Release) -> Result<()> {
         }
         for (path, size) in corrupted {
             conn.execute(
-                "INSERT INTO incomplete_files (release_id, file_path, status, size) \
+                "INSERT OR REPLACE INTO incomplete_files (release_id, file_path, status, size) \
                     VALUES (?1, ?2, 'CORRUPTED', ?3)",
                 [
                     &release.id as &dyn rusqlite::ToSql,
@@ -214,7 +226,8 @@ pub fn reset_verification_result(conn: &mut Connection, release_id: &str) -> Res
 pub fn get_releases(conn: &Connection) -> Result<Vec<Release>> {
     let mut statement = conn.prepare(
         "SELECT id, date, name, \
-            directory, file_count, size, torrent_url, verification_outcome, notes FROM releases",
+            directory, file_count, size, \
+            torrent_url, verification_outcome, notes, download_url FROM releases",
     )?;
     let mut rows = statement.query([])?;
     let mut releases = Vec::new();
@@ -231,7 +244,9 @@ pub fn get_releases(conn: &Connection) -> Result<Vec<Release>> {
 
 pub fn get_missing_releases(conn: &Connection) -> Result<Vec<Release>> {
     let mut statement = conn.prepare(
-        "SELECT id, date, name, directory, file_count, size, torrent_url, verification_outcome, notes FROM \
+        "SELECT id, date, name, \
+            directory, file_count, size, \
+            torrent_url, verification_outcome, notes, download_url FROM \
             releases WHERE verification_outcome = 'MISSING'",
     )?;
     let mut rows = statement.query([])?;
@@ -252,7 +267,7 @@ pub fn get_release_by_id(conn: &Connection, release_id: &str) -> Result<Release>
         "SELECT \
         id, date, name, \
         directory, file_count, size, \
-        torrent_url, verification_outcome, notes FROM releases WHERE id = ?1",
+        torrent_url, verification_outcome, notes, download_url FROM releases WHERE id = ?1",
     )?;
     let mut rows = statement.query(params![release_id])?;
 

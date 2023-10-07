@@ -1,11 +1,10 @@
 use clap::{Parser, Subcommand};
-use color_eyre::Result;
+use color_eyre::{eyre::eyre, Result};
 use dialoguer::Editor;
 use sept11_datasets::db::*;
 use sept11_datasets::{bytes_to_human_readable, download_torrents, Release, VerificationOutcome};
 use std::path::PathBuf;
 use tempdir::TempDir;
-use url::Url;
 
 #[derive(Parser, Debug)]
 #[clap(name = "sept11-datasets", version = env!("CARGO_PKG_VERSION"))]
@@ -41,11 +40,6 @@ enum Commands {
         /// The ID of the release to download
         #[arg(long)]
         id: String,
-        /// The URL of the release on the archive.
-        ///
-        /// This should be the top level URL, e.g., https://archive.org/download/NIST_9-11_Release_01.
-        #[arg(long, verbatim_doc_comment)]
-        url: String,
         /// Path specifying where the files should be downloaded
         #[arg(long)]
         target_path: PathBuf,
@@ -169,16 +163,16 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Some(Commands::DownloadRelease {
-            id,
-            url,
-            target_path,
-        }) => {
+        Some(Commands::DownloadRelease { id, target_path }) => {
             let db_path = get_database_path()?;
             let conn = get_db_connection(&db_path)?;
             let release = get_release_by_id(&conn, &id)?;
             let _ = conn.close();
-            let url = Url::parse(&url)?;
+            let url = if let Some(url) = release.download_url.as_ref() {
+                url
+            } else {
+                return Err(eyre!("This release does not have a download URL"));
+            };
             release
                 .download_release_from_archive(&url, &target_path)
                 .await?;
@@ -190,9 +184,22 @@ async fn main() -> Result<()> {
                 let conn = get_db_connection(&db_path)?;
                 create_db_schema(&conn)?;
                 println!("Updated database schema");
+                let _ = conn.close();
 
+                let conn = get_db_connection(&db_path)?;
                 let temp_dir = TempDir::new("torrents")?;
                 download_torrents(&conn, &temp_dir.into_path()).await?;
+
+                // The purpose of this is to save any additional data that was added to the static
+                // release data. It should leave verification results unchanged.
+                println!("Reinitialising release data...");
+                let mut releases = get_releases(&conn)?;
+                Release::reinit_releases(&mut releases)?;
+                for release in releases.iter() {
+                    save_release(&conn, &release)?;
+                }
+
+                let _ = conn.close();
                 return Ok(());
             }
 
@@ -210,9 +217,9 @@ async fn main() -> Result<()> {
                 println!("{release}");
             }
 
-            println!("Saving releases to new database...");
+            println!("Saving releases...");
             for release in releases.iter() {
-                save_new_release(&conn, &release)?;
+                save_release(&conn, &release)?;
             }
             let _ = conn.close();
             println!("Done");
