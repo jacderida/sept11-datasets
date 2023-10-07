@@ -39,6 +39,8 @@ cargo run -- init
 
 The database will be saved at `~/.local/share/sept11-datasets/releases.db`.
 
+If you want to avoid continually using the `--target-path` argument on various commands, set the `DATASETS_PATH` environment variable to the path where the releases are to be saved.
+
 ## Verification
 
 To verify all releases:
@@ -56,17 +58,16 @@ cargo run -- verify --id <release-id> --target-path <releases-directory>
 
 ## Downloading Releases
 
-Some of the releases, like the NIST FOIA 09 series, are on the archive. They have the same tree as the torrent. It's possible to download all the individual files with this tool. Use the following command:
+Many releases are on the Archive, consisting of individual files with the same tree as the torrent. It's possible to download all the individual files with this tool. Use the following command:
 ```
 cargo run -- download-release \
   --id 34f28513edfaa80a46bd627195f8ea4ae573d914 \
-  --target-path /mnt/sept11-archive/9-11-archive/911datasets.org \
-  --url https://archive.org/download/NIST_9-11_Release_01
+  --target-path /mnt/sept11-archive/9-11-archive/911datasets.org
 ```
 
 This is a basic downloading mechanism. It's slow, for two reasons:
 
-1. Each file in the release is downloaded individually and sequentially. So a new connection is opened/closed for each item, and only one at at time. It would be possible to use, say, 100 concurrent connections, but I don't want to abuse the archive service.
+1. Each file in the release is downloaded individually and sequentially. So a new connection is opened/closed for each item, and only one at a time. It would be possible to use, say, 100 concurrent connections, but I don't want to abuse the archive service.
 2. The archive itself can be slow, depending on which mirror you get redirected to.
 
 Anyway, this is a process that really doesn't require speed; for larger releases, just leave it running for a few days. It uses retries and resuming.

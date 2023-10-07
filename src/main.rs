@@ -25,7 +25,7 @@ enum Commands {
         #[arg(long)]
         id: String,
         /// Path to the directory containing the files for the release
-        #[arg(long)]
+        #[arg(long, env = "DATASETS_PATH")]
         target_path: PathBuf,
     },
     /// Download a release from the Internet Archive.
@@ -41,7 +41,7 @@ enum Commands {
         #[arg(long)]
         id: String,
         /// Path specifying where the files should be downloaded
-        #[arg(long)]
+        #[arg(long, env = "DATASETS_PATH")]
         target_path: PathBuf,
     },
     /// Build the release database from the torrent files.
@@ -115,7 +115,7 @@ enum Commands {
         #[arg(long)]
         id: Option<String>,
         /// Path to the directory containing the files for the release
-        #[arg(long)]
+        #[arg(long, env = "DATASETS_PATH")]
         target_path: PathBuf,
     },
 }
