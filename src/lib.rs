@@ -718,6 +718,11 @@ impl Release {
         Ok(())
     }
 
+    pub fn mark_missing(&mut self) -> Result<()> {
+        self.verification_outcome = Some(VerificationOutcome::AllFilesMissing);
+        Ok(())
+    }
+
     fn read_file_lines_as_paths_in_tree(
         path: &Path,
         tree: &Vec<(PathBuf, u64)>,

@@ -196,6 +196,11 @@ pub fn save_verification_result(conn: &mut Connection, release: &Release) -> Res
                 params![release.id, path.to_str().unwrap(), "CORRUPTED", size],
             )?;
         }
+    } else {
+        tx.execute(
+            "DELETE FROM incomplete_files WHERE release_id = ?1",
+            params![release.id],
+        )?;
     }
     tx.commit()?;
     Ok(())

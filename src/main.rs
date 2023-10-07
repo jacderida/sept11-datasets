@@ -80,6 +80,16 @@ enum Commands {
         #[arg(long)]
         corrupt_files_path: Option<PathBuf>,
     },
+    // Mark a release as missing.
+    //
+    // Provide the list of missing or corrupt files by pointing to a text file, where each line in
+    // the file is a path.
+    #[clap(name = "mark-missing", verbatim_doc_comment)]
+    MarkMissing {
+        /// The id of the release
+        #[arg(long)]
+        id: String,
+    },
     /// Add or edit notes for a release.
     ///
     /// Set the EDITOR variable to determine which editor will be used to compose the note.
@@ -276,6 +286,15 @@ async fn main() -> Result<()> {
                 .mark_incomplete(missing_files_path.as_deref(), corrupt_files_path.as_deref())?;
             save_verification_result(&mut conn, &mut release)?;
             println!("Marked {} as incomplete", release.name);
+            Ok(())
+        }
+        Some(Commands::MarkMissing { id }) => {
+            let db_path = get_database_path()?;
+            let mut conn = get_db_connection(&db_path)?;
+            let mut release = get_release_by_id(&conn, &id)?;
+            release.mark_missing()?;
+            save_verification_result(&mut conn, &mut release)?;
+            println!("Marked {} as missing", release.name);
             Ok(())
         }
         Some(Commands::Notes { id }) => {
