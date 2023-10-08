@@ -15,11 +15,7 @@ struct Opt {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Check the release for completeness by seeing if all the files are present and comparing the
-    /// sizes against those in the torrent.
-    ///
-    /// This is to attempt to mark a release as complete, as opposed to verified. I had one release
-    /// which could not be verified, but did not appear to have any corrupt files.
+    /// Check all files are present and the sizes match those in the torrent
     Check {
         /// The ID of the release to download
         #[arg(long)]
@@ -28,7 +24,7 @@ enum Commands {
         #[arg(long, env = "DATASETS_PATH")]
         target_path: PathBuf,
     },
-    /// Download a release from the Internet Archive.
+    /// Download a release from the Internet Archive
     ///
     /// Some releases are on the archive, where they have the same tree as the torrent. Given the
     /// URL prefix of the release on the archive, we can use the information from the torrent to
@@ -44,30 +40,30 @@ enum Commands {
         #[arg(long, env = "DATASETS_PATH")]
         target_path: PathBuf,
     },
-    /// Build the release database from the torrent files.
+    /// Build the release database from the static data in the binary
     ///
     /// The torrents are downloaded during this process.
     ///
     /// If the database already exists, running this command again will add any new schema that
     /// needs to be created.
     Init {},
-    // Print the releases
+    /// Print the list of releases
     Ls {
         /// Set to print the directory of the release rather than the name
         #[arg(long)]
         directory: bool,
     },
-    // List the files in the torrent
+    /// List the files for the release
     #[clap(name = "ls-files", verbatim_doc_comment)]
     LsFiles {
         /// The id of the release
         #[arg(long)]
         id: String,
     },
-    // Mark a release as incomplete.
-    //
-    // Provide the list of missing or corrupt files by pointing to a text file, where each line in
-    // the file is a path.
+    /// Mark a release as incomplete
+    ///
+    /// Provide the list of missing or corrupt files by pointing to a text file, where each line in
+    /// the file is a path.
     #[clap(name = "mark-incomplete", verbatim_doc_comment)]
     MarkIncomplete {
         /// The id of the release
@@ -80,17 +76,17 @@ enum Commands {
         #[arg(long)]
         corrupt_files_path: Option<PathBuf>,
     },
-    // Mark a release as missing.
-    //
-    // Provide the list of missing or corrupt files by pointing to a text file, where each line in
-    // the file is a path.
+    /// Mark a release as missing
+    ///
+    /// Provide the list of missing or corrupt files by pointing to a text file, where each line in
+    /// the file is a path.
     #[clap(name = "mark-missing", verbatim_doc_comment)]
     MarkMissing {
         /// The id of the release
         #[arg(long)]
         id: String,
     },
-    /// Add or edit notes for a release.
+    /// Add or edit notes for a release
     ///
     /// Set the EDITOR variable to determine which editor will be used to compose the note.
     Notes {
@@ -98,7 +94,7 @@ enum Commands {
         #[arg(long)]
         id: String,
     },
-    // Reset verification result for releases
+    /// Reset the verification result for a release
     Reset {
         /// Only reset the release with the specified ID.
         ///
@@ -106,7 +102,7 @@ enum Commands {
         #[arg(long)]
         id: Option<String>,
     },
-    // Print the current verification status releases
+    /// Print the current verification status for releases
     Status {
         /// Display the status of a particular release.
         ///
@@ -117,7 +113,7 @@ enum Commands {
         #[arg(long)]
         show_incomplete: bool,
     },
-    // Verify releases against their corresponding torrents
+    /// Verify releases against their corresponding torrents
     Verify {
         /// The ID of the release to verify.
         ///

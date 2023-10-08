@@ -144,7 +144,7 @@ lazy_static! {
             "2011-12-14",
             "https://jacderida-sept11.s3.eu-west-1.amazonaws.com/911datasets-torrents/NARA_FOIA_36411_FAA_RECORDS_Aug_19_2011.torrent",
             "NARA FOIA 36411 FAA RECORDS Aug 19 2011",
-            "https://archive.org/download/911datasets/NARA_FOIA_36411_FAA_RECORDS_Aug_19_2011.zip",
+            "",
         ),
         (
             "2011-12-13",
