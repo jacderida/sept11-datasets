@@ -645,36 +645,37 @@ impl Release {
         }
         missing_files_pb.finish_with_message("Completed");
 
-        if missing_files.len() == files.len() {
-            return Ok(VerificationOutcome::AllFilesMissing);
-        } else if missing_files.len() > 0 {
-            return Ok(VerificationOutcome::Incomplete(missing_files, vec![]));
-        }
-
+        println!("Checking for size mismatches...");
         let size_mismatch_pb = ProgressBar::new(files.len() as u64);
         size_mismatch_pb.set_style(
             ProgressStyle::default_bar()
                 .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len}")?
                 .progress_chars("#>-"),
         );
-        println!("Checking for size mismatches...");
         let mut size_mismatches = Vec::new();
         for file in files.iter() {
             let path = target_directory.join(file.path.clone());
-            let metadata = std::fs::metadata(&path)?;
-            let size = metadata.len();
-            if size != file.length as u64 {
-                size_mismatches.push((path, file.length as u64));
+            if path.exists() {
+                let metadata = std::fs::metadata(&path)?;
+                let size = metadata.len();
+                if size != file.length as u64 {
+                    size_mismatches.push((path, file.length as u64));
+                }
+                size_mismatch_pb.inc(1);
             }
-            size_mismatch_pb.inc(1);
         }
         size_mismatch_pb.finish_with_message("Completed");
 
-        if !size_mismatches.is_empty() {
-            return Ok(VerificationOutcome::Incomplete(vec![], size_mismatches));
+        if missing_files.len() == files.len() {
+            return Ok(VerificationOutcome::AllFilesMissing);
+        } else if !missing_files.is_empty() || !size_mismatches.is_empty() {
+            return Ok(VerificationOutcome::Incomplete(
+                missing_files,
+                size_mismatches,
+            ));
+        } else {
+            return Ok(VerificationOutcome::Complete);
         }
-
-        Ok(VerificationOutcome::Complete)
     }
 
     pub fn verify(&self, target_directory: &PathBuf) -> Result<VerificationOutcome> {

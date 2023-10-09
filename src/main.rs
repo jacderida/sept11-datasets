@@ -154,18 +154,13 @@ async fn main() -> Result<()> {
                 outcome
             };
             match outcome {
-                VerificationOutcome::Incomplete(missing, corrupted) => {
+                VerificationOutcome::Incomplete(missing, size_mismatches) => {
                     println!("Outcome: INCOMPLETE");
                     if !missing.is_empty() {
-                        println!("Missing files:");
-                        for (path, _) in missing.iter() {
-                            println!("{}", path.to_string_lossy());
-                        }
-                    } else {
-                        println!("Files with size mismatch:");
-                        for (path, _) in corrupted.iter() {
-                            println!("{}", path.to_string_lossy());
-                        }
+                        println!("Missing {} files", missing.len());
+                    }
+                    if !size_mismatches.is_empty() {
+                        println!("{} size mismatches", size_mismatches.len());
                     }
                 }
                 _ => {
