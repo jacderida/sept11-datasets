@@ -1,6 +1,7 @@
 use crate::error::{Error, Result};
 use crate::{Release, VerificationOutcome};
 use rusqlite::{params, Connection};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub fn get_db_connection<P: AsRef<Path>>(path: P) -> Result<Connection> {
@@ -36,6 +37,13 @@ pub fn create_db_schema(conn: &Connection) -> Result<()> {
             release_id TEXT PRIMARY KEY NOT NULL,
             filename TEXT NOT NULL,
             content BLOB NOT NULL
+        );",
+        [],
+    )?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS release_14_links (
+            directory_path TEXT NOT NULL,
+            base_url TEXT NOT NULL
         );",
         [],
     )?;
@@ -95,6 +103,18 @@ pub fn save_torrent(
     conn.execute(
         "INSERT OR REPLACE INTO torrents (release_id, filename, content) VALUES (?, ?, ?);",
         params![release_id, filename, content],
+    )?;
+    Ok(())
+}
+
+pub fn save_release_14_link(
+    conn: &Connection,
+    directory_path: &PathBuf,
+    base_url: &str,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO release_14_links (directory_path, base_url) VALUES (?, ?);",
+        params![directory_path.to_string_lossy(), base_url],
     )?;
     Ok(())
 }
@@ -324,6 +344,24 @@ fn get_incomplete_verification_data(
         }
     }
     Ok((missing_files.clone(), corrupted_files.clone()))
+}
+
+pub fn get_release_14_links(conn: &Connection) -> Result<HashMap<PathBuf, String>> {
+    let mut map = HashMap::new();
+    let mut statement = conn.prepare("SELECT directory_path, base_url FROM release_14_links")?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            PathBuf::from(row.get::<_, String>("directory_path")?),
+            row.get::<_, String>("base_url")?,
+        ))
+    })?;
+
+    for row in rows {
+        if let Ok((directory_path, base_url)) = row {
+            map.insert(directory_path, base_url);
+        }
+    }
+    Ok(map)
 }
 
 pub fn get_database_path() -> Result<PathBuf> {

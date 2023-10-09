@@ -2,19 +2,20 @@ pub mod db;
 pub mod error;
 pub mod release_data;
 
-use crate::db::{get_torrent_content, save_torrent, torrent_already_saved};
+use crate::db::{get_torrent_content, save_release_14_link, save_torrent, torrent_already_saved};
 use crate::error::{Error, Result};
-use crate::release_data::RELEASE_DATA;
+use crate::release_data::{RELEASE_14_LINKS, RELEASE_DATA};
 use colored::*;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use lava_torrent::torrent::v1::Torrent;
 use prettytable::{color, Attr, Cell, Row as TableRow, Table};
 use rusqlite::{Connection, Row};
 use sha1::{Digest, Sha1};
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
 use std::io::{BufRead, Read, Seek};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::time::{sleep, Duration};
@@ -461,6 +462,84 @@ impl Release {
         Ok(tree)
     }
 
+    pub async fn download_release_14_from_archive(
+        &self,
+        release_14_links: HashMap<PathBuf, String>,
+        base_target_path: &PathBuf,
+    ) -> Result<()> {
+        let tree = self.get_torrent_tree()?;
+        let multi_progress = MultiProgress::new();
+        let total_pb = multi_progress.add(ProgressBar::new(tree.len() as u64));
+        total_pb.set_style(
+            ProgressStyle::default_bar()
+                .template("Overall progress: [{bar:40.cyan/blue}] {pos}/{len} files")?
+                .progress_chars("#>-"),
+        );
+
+        let file_pb = multi_progress.add(ProgressBar::new(0));
+        file_pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{prefix:.bold.dim} [{bar:30.green/blue}] {bytes}/{total_bytes} {bytes_per_sec}")?
+                .progress_chars("=> "),
+        );
+
+        println!("Downloading files for {}...", self.name);
+        for (path, _) in tree.iter() {
+            let target_path = base_target_path.join(path);
+            if !target_path.exists() {
+                let file_name = target_path
+                    .clone()
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
+                file_pb.set_prefix(format!("Downloading: {}", file_name));
+                file_pb.set_position(0);
+                tokio::fs::create_dir_all(target_path.parent().unwrap()).await?;
+
+                let base_url = Url::parse(release_14_links.get(path.parent().unwrap()).unwrap())?;
+                let mut url = base_url.clone();
+                {
+                    let mut path_segments = match url.path_segments_mut() {
+                        Ok(segments) => segments,
+                        Err(_) => return Err(Error::PathSegmentsParseError),
+                    };
+                    path_segments.push(&file_name);
+                }
+                let mut retries = 10;
+                loop {
+                    match download_file(&url, &target_path, &file_pb).await {
+                        Ok(_) => {
+                            file_pb.finish_with_message("Download completed");
+                            break;
+                        }
+                        Err(e) => match e {
+                            Error::ArchiveFileNotFoundError(_) => {
+                                file_pb.abandon_with_message("Download failed. File not found.");
+                                break;
+                            }
+                            _ => {
+                                retries -= 1;
+                                if retries == 0 {
+                                    file_pb
+                                        .abandon_with_message("Download failed after 10 retries");
+                                    return Err(e.into());
+                                }
+                                file_pb.abandon_with_message(
+                                    "Download failed. Will retry in 5 seconds.",
+                                );
+                                sleep(Duration::from_secs(5)).await;
+                            }
+                        },
+                    }
+                }
+            }
+            total_pb.inc(1);
+        }
+        total_pb.finish_with_message("Downloaded all files in the torrent tree");
+        Ok(())
+    }
+
     pub async fn download_release_from_archive(
         &self,
         base_url: &Url,
@@ -858,6 +937,38 @@ pub async fn download_torrents(conn: &Connection, target_path: &PathBuf) -> Resu
         save_torrent(&conn, &release_id, &file_name, &content)?;
 
         total_pb.inc(1);
+    }
+    Ok(())
+}
+
+pub fn build_release_14_links(conn: &Connection, release: &Release) -> Result<()> {
+    let mut release_14_links = Vec::new();
+    let tree = release
+        .get_torrent_tree()?
+        .iter()
+        .map(|(p, _)| p.clone())
+        .collect::<Vec<PathBuf>>();
+    for key in RELEASE_14_LINKS.keys() {
+        let file_path = tree
+            .iter()
+            .find(|p| p.to_string_lossy().contains(key))
+            .unwrap();
+        let mut new_path = PathBuf::new();
+        for component in file_path.components() {
+            if let Component::Normal(s) = component {
+                let s_str = s.to_string_lossy();
+                if s_str == *key {
+                    break;
+                }
+            }
+            new_path.push(component);
+        }
+        new_path.push(key);
+        let base_url = RELEASE_14_LINKS.get(key).unwrap();
+        release_14_links.push((new_path, base_url.to_string()));
+    }
+    for (path, base_url) in release_14_links.iter() {
+        save_release_14_link(conn, path, base_url.as_str())?;
     }
     Ok(())
 }
