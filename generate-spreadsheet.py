@@ -58,6 +58,12 @@ class IncompleteFilesData:
     status: str
 
 
+@dataclass
+class Release14LinksData:
+    path: str
+    url: str
+
+
 def get_db_path():
     if "HOME" in os.environ:
         app_data_path = os.path.join(os.environ["HOME"], ".local", "share", "sept11-datasets")
@@ -154,6 +160,21 @@ def get_incomplete_files_data():
                     IncompleteFilesData(
                         name, incomplete_row[0], incomplete_row[1], incomplete_row[2]))
         return incomplete_files_data
+
+
+def get_release_14_links_data():
+    with sqlite3.connect(get_db_path()) as conn:
+        release_14_links_data = []
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT directory_path, base_url FROM release_14_links
+        """)
+        rows = cursor.fetchall()
+        for row in rows:
+            path = row[0]
+            url = row[1]
+            release_14_links_data.append(Release14LinksData(path, url))
+        return release_14_links_data
 
 
 def bytes_to_human_readable(bytes):
@@ -318,15 +339,44 @@ def build_incomplete_files_sheet(workbook, incomplete_files_data):
     sheet.freeze_panes = "A2"
 
 
+def build_release14_links_sheet(workbook, release_14_links_data):
+    print("Creating incomplete files sheet")
+    sheet = workbook.create_sheet("Release 14 Links", 3)
+    headers = ["Collection", "Link"]
+    for col_num, header in enumerate(headers, 1):
+        col_letter = chr(64 + col_num)
+        sheet[f"{col_letter}1"] = header
+    row_num = 2
+    for item in release_14_links_data:
+        sheet[f"A{row_num}"] = item.path
+        cell = sheet[f"B{row_num}"]
+        cell.value = item.url
+        cell.hyperlink = item.url
+        cell.style = "Hyperlink"
+        row_num += 1
+
+    # Make headers text bold
+    bold_font = Font(name="Calibri", bold=True)
+    for col_num, _ in enumerate(headers, 1):
+        col_letter = get_column_letter(col_num)
+        sheet[f"{col_letter}1"].font = bold_font
+
+    adjust_column_widths(headers, sheet)
+    sheet.freeze_panes = "A2"
+
+
 def generate_report(file_path):
     releases = get_releases()
     incomplete_release_data = get_incomplete_release_data()
     incomplete_files_data = get_incomplete_files_data()
+    release_14_links_data = get_release_14_links_data()
+    release_14_links_data.sort(key=lambda x: x.path)
 
     workbook = Workbook()
     build_releases_sheet(workbook, releases)
     build_incomplete_releases_sheet(workbook, incomplete_release_data)
     build_incomplete_files_sheet(workbook, incomplete_files_data)
+    build_release14_links_sheet(workbook, release_14_links_data)
     workbook.save(file_path)
 
 
