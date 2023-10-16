@@ -365,12 +365,17 @@ pub fn get_release_14_links(conn: &Connection) -> Result<HashMap<PathBuf, String
 }
 
 pub fn get_database_path() -> Result<PathBuf> {
-    let path = dirs_next::data_dir()
-        .ok_or_else(|| Error::CouldNotObtainDataDirectory)?
-        .join("sept11-datasets");
-    if !path.exists() {
-        std::fs::create_dir_all(path.clone())?;
+    match std::env::var("DATASETS_DB_PATH") {
+        Ok(val) => Ok(PathBuf::from(val)),
+        Err(_) => {
+            let path = dirs_next::data_dir()
+                .ok_or_else(|| Error::CouldNotObtainDataDirectory)?
+                .join("sept11-datasets");
+            if !path.exists() {
+                std::fs::create_dir_all(path.clone())?;
+            }
+            let db_path = path.join("releases.db");
+            Ok(db_path)
+        }
     }
-    let db_path = path.join("releases.db");
-    Ok(db_path)
 }
