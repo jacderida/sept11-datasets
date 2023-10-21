@@ -497,7 +497,11 @@ impl Release {
                 file_pb.set_position(0);
                 tokio::fs::create_dir_all(target_path.parent().unwrap()).await?;
 
-                let base_url = Url::parse(release_14_links.get(path.parent().unwrap()).unwrap())?;
+                let link = release_14_links.get(path.parent().unwrap());
+                if link.is_none() {
+                    continue;
+                }
+                let base_url = Url::parse(link.unwrap())?;
                 let mut url = base_url.clone();
                 {
                     let mut path_segments = match url.path_segments_mut() {
