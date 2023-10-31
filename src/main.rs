@@ -64,6 +64,9 @@ enum Commands {
         /// The id of the release
         #[arg(long)]
         id: String,
+        /// Display file sizes in bytes rather than human readable text
+        #[arg(long)]
+        use_bytes: bool,
     },
     /// Mark a release as incomplete
     ///
@@ -279,17 +282,21 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Some(Commands::LsFiles { id }) => {
+        Some(Commands::LsFiles { id, use_bytes }) => {
             let db_path = get_database_path()?;
             let conn = get_db_connection(&db_path)?;
             let release = get_release_by_id(&conn, &id)?;
             let files = release.get_torrent_tree()?;
             for (path, size) in files.iter() {
-                println!(
-                    "{} ({})",
-                    path.to_string_lossy(),
-                    bytes_to_human_readable(*size)
-                );
+                if use_bytes {
+                    println!("{} ({})", path.to_string_lossy(), *size);
+                } else {
+                    println!(
+                        "{} ({})",
+                        path.to_string_lossy(),
+                        bytes_to_human_readable(*size)
+                    );
+                }
             }
             let _ = conn.close();
             Ok(())
