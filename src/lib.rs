@@ -846,7 +846,17 @@ impl Release {
                         Ok(segments) => segments,
                         Err(_) => return Err(Error::PathSegmentsParseError),
                     };
-                    path_segments.push(&parent.file_stem().unwrap().to_string_lossy());
+                    let mut parent_name = parent.file_stem().unwrap().to_string_lossy().to_string();
+                    let parent_name = if parent_name.starts_with("ABC NIST Dub") {
+                        // This is another annoying special case. On the torrent, the directory
+                        // name refers to each sub directory using a '#' character, but it's not
+                        // present on the Archive.
+                        parent_name.retain(|c| c != '#');
+                        parent_name
+                    } else {
+                        parent_name
+                    };
+                    path_segments.push(&parent_name);
                     path_segments.push(&file_name);
                 }
                 return Ok(Some(url));

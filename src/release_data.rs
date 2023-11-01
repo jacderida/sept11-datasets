@@ -918,7 +918,7 @@ lazy_static! {
         "Kevin Segalla" => "https://archive.org/download/nsia-KevinSegalla",
         "KTVT-LA FOX 9-11-01 10-11AM" => "https://archive.org/download/nsia-KTVTLAFOX911011011AM",
         "Luigi Cazzaniga" => "https://archive.org/download/nsia-LuigiCazzaniga",
-        "Mark Trottenberg" => "https://archive.org/details/nsia-MarkTrottenberg",
+        "Mark Trottenberg" => "https://archive.org/download/nsia-MarkTrottenberg",
         "Matthew Shapoff (9-11)" => "https://archive.org/download/nsia-MatthewShapoff911",
         "MSNBC Investigates Out of the Rubble" => "https://archive.org/download/nsia-MSNBCInvestigatesOutoftheRubble",
         "NBC Atlanta 10 to noon" => "https://archive.org/download/nsia-NBCAtlanta10tonoon",
