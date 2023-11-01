@@ -497,19 +497,11 @@ impl Release {
                 file_pb.set_position(0);
                 tokio::fs::create_dir_all(target_path.parent().unwrap()).await?;
 
-                let link = release_14_links.get(path.parent().unwrap());
-                if link.is_none() {
+                let url = Self::get_release_14_url(&release_14_links, path.clone(), &file_name)?;
+                if url.is_none() {
                     continue;
                 }
-                let base_url = Url::parse(link.unwrap())?;
-                let mut url = base_url.clone();
-                {
-                    let mut path_segments = match url.path_segments_mut() {
-                        Ok(segments) => segments,
-                        Err(_) => return Err(Error::PathSegmentsParseError),
-                    };
-                    path_segments.push(&file_name);
-                }
+                let url = url.unwrap();
                 let mut retries = 10;
                 loop {
                     match download_file(&url, &target_path, &file_pb).await {
@@ -823,6 +815,44 @@ impl Release {
             paths.push(entry_in_tree.clone());
         }
         Ok(paths)
+    }
+
+    fn get_release_14_url(
+        release_14_links: &HashMap<PathBuf, String>,
+        path: PathBuf,
+        file_name: &str,
+    ) -> Result<Option<Url>> {
+        let parent = path.parent().unwrap();
+        if let Some(link) = release_14_links.get(parent) {
+            let base_url = Url::parse(link)?;
+            let mut url = base_url.clone();
+            {
+                let mut path_segments = match url.path_segments_mut() {
+                    Ok(segments) => segments,
+                    Err(_) => return Err(Error::PathSegmentsParseError),
+                };
+                path_segments.push(&file_name);
+            }
+            return Ok(Some(url));
+        } else {
+            // This is to attempt to get a link for the slightly rarer cases where there are sub
+            // directories, e.g., ABCatlanta/ABC Atlanta Broadcast 10 to noon/.
+            let grand_parent = parent.parent().unwrap();
+            if let Some(link) = release_14_links.get(grand_parent) {
+                let base_url = Url::parse(link)?;
+                let mut url = base_url.clone();
+                {
+                    let mut path_segments = match url.path_segments_mut() {
+                        Ok(segments) => segments,
+                        Err(_) => return Err(Error::PathSegmentsParseError),
+                    };
+                    path_segments.push(&parent.file_stem().unwrap().to_string_lossy());
+                    path_segments.push(&file_name);
+                }
+                return Ok(Some(url));
+            }
+        }
+        Ok(None)
     }
 }
 

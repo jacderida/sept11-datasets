@@ -926,7 +926,7 @@ lazy_static! {
         "NBC_Broadcast_8-45A" => "https://archive.org/download/nsia-NBCBroadcast845A",
         "NBC_News Dub from Jim Remberg" => "https://archive.org/download/nsia-NBCNewsDubfromJimRemberg",
         "NBC Short Collapse of WTC 2" => "https://archive.org/download/nsia-NBCShortCollapseofWTC2",
-        "New York Firefighters brotherhood Discovery Channel" => "https://archive.org/download/nsia-WNBCNISTDub9FosterAndaloroNBCStatCamNJ",
+        "New York Firefighters brotherhood Discovery Channel" => "https://archive.org/download/nsia-NewYorkFirefightersbrotherhoodDiscoveryChannel",
         "NOVA PBS - Why Towers Fell" => "https://archive.org/download/nsia-NOVAPBSWhyTowersFell",
         "NY1-6 raw field tapes" => "https://archive.org/download/nsia-NY16rawfieldtapes",
         "NY1-onair plus 5 raw b-roll clips" => "https://archive.org/download/nsia-NY1onairplus5rawbrollclips",
