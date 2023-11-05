@@ -47,6 +47,13 @@ pub fn create_db_schema(conn: &Connection) -> Result<()> {
         );",
         [],
     )?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS release_14_file_links (
+            path TEXT NOT NULL,
+            url TEXT NOT NULL
+        );",
+        [],
+    )?;
 
     let mut has_download_url_column = false;
     let mut has_notes_column = false;
@@ -113,8 +120,16 @@ pub fn save_release_14_link(
     base_url: &str,
 ) -> Result<()> {
     conn.execute(
-        "INSERT INTO release_14_links (directory_path, base_url) VALUES (?, ?);",
+        "INSERT OR IGNORE INTO release_14_links (directory_path, base_url) VALUES (?, ?);",
         params![directory_path.to_string_lossy(), base_url],
+    )?;
+    Ok(())
+}
+
+pub fn save_release_14_file_link(conn: &Connection, file_path: &PathBuf, url: &str) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO release_14_file_links (path, url) VALUES (?, ?);",
+        params![file_path.to_string_lossy(), url],
     )?;
     Ok(())
 }
@@ -359,6 +374,24 @@ pub fn get_release_14_links(conn: &Connection) -> Result<HashMap<PathBuf, String
     for row in rows {
         if let Ok((directory_path, base_url)) = row {
             map.insert(directory_path, base_url);
+        }
+    }
+    Ok(map)
+}
+
+pub fn get_release_14_file_links(conn: &Connection) -> Result<HashMap<PathBuf, String>> {
+    let mut map = HashMap::new();
+    let mut statement = conn.prepare("SELECT path, url FROM release_14_file_links")?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            PathBuf::from(row.get::<_, String>("path")?),
+            row.get::<_, String>("url")?,
+        ))
+    })?;
+
+    for row in rows {
+        if let Ok((path, url)) = row {
+            map.insert(path, url);
         }
     }
     Ok(map)

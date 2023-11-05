@@ -851,7 +851,7 @@ lazy_static! {
             "https://archive.org/download/911datasets/WTC1_Architectural_and_Engineering_Drawings_Released_May_27_2009.zip",
         ),
     ];
-    pub static ref RELEASE_14_LINKS: HashMap<&'static str, &'static str> = hashmap!{
+    pub static ref RELEASE_14_COLLECTION_LINKS: HashMap<&'static str, &'static str> = hashmap!{
         "ABCatlanta" => "https://archive.org/download/nsia-ABCatlanta",
         "ABCNewsGMAspecialReport" => "https://archive.org/download/nsia-ABCNewsGMAspecialReport",
         "ABCNISTDubs" => "https://archive.org/download/nsia-ABCNISTDubs",
@@ -987,5 +987,28 @@ lazy_static! {
         "Stevens Tape 2" => "https://archive.org/download/nsia-StevensTape2",
         "WTC 7 Part 1" => "https://archive.org/download/nsia-WTC7Part1",
         "WTC 7 Part 2" => "https://archive.org/download/nsia-WTC7Part2",
+    };
+    pub static ref RELEASE_14_FILE_LINKS: HashMap<&'static str, &'static str> = hashmap!{
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/Mark Molesworth/Molesworth Clip 1.avi" => "https://archive.org/download/MolesworthClip1/MolesworthClip1.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/Mark Molesworth/Molesworth Clip 10.avi" => "https://archive.org/download/MolesworthClip10/MolesworthClip10.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/Mark Molesworth/Molesworth Clip 11.avi" => "https://archive.org/download/MolesworthClip11/MolesworthClip11.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/Mark Molesworth/Molesworth Clip 12.avi" => "https://archive.org/download/MolesworthClip12/MolesworthClip12.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/Mark Molesworth/Molesworth Clip 2.avi" => "https://archive.org/download/MolesworthClip2/MolesworthClip2.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/Mark Molesworth/Molesworth Clip 3.avi" => "https://archive.org/download/MolesworthClip3/MolesworthClip3.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/Mark Molesworth/Molesworth Clip 4.avi" => "https://archive.org/download/MolesworthClip4/MolesworthClip4.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/Mark Molesworth/Molesworth Clip 5.avi" => "https://archive.org/download/MolesworthClip5/MolesworthClip5.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/Mark Molesworth/Molesworth Clip 5A.avi" => "https://archive.org/download/MolesworthClip5A/MolesworthClip5A.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/Mark Molesworth/Molesworth Clip 6.avi" => "https://archive.org/download/MolesworthClip6/MolesworthClip6.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/Mark Molesworth/Molesworth Clip 7.avi" => "https://archive.org/download/MolesworthClip7/MolesworthClip7.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/Mark Molesworth/Molesworth Clip 8.avi" => "https://archive.org/download/MolesworthClip8/MolesworthClip8.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/Mark Molesworth/Molesworth Clip 8A.avi" => "https://archive.org/download/MolesworthClip8A/MolesworthClip8A.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/Mark Molesworth/Molesworth Clip 9.avi" => "https://archive.org/download/MolesworthClip9/MolesworthClip9.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/FOX News (9-11 Remembered)/Part 1/FOX Rem1 clip1.avi" => "https://archive.org/download/nsia-FOXNews911Remembered/FOX%20Rem1%20clip1.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/FOX News (9-11 Remembered)/Part 1/Fox Rem1 clip2.avi" => "https://archive.org/download/nsia-FOXNews911Remembered/Fox%20Rem1%20clip2.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/FOX News (9-11 Remembered)/Part 1/Fox Rem1 clip3.avi" => "https://archive.org/download/nsia-FOXNews911Remembered/Fox%20Rem1%20clip3.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/FOX News (9-11 Remembered)/Part 3/Fox Rem3 clip1.avi" => "https://archive.org/download/nsia-FOXNews911Remembered/Fox%20Rem3%20clip1.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/FOX News (9-11 Remembered)/Part 3/Fox Rem3 clip2.avi" => "https://archive.org/download/nsia-FOXNews911Remembered/Fox%20Rem3%20clip2.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/FOX News (9-11 Remembered)/Part 3/Fox Rem3 clip3.avi" => "https://archive.org/download/nsia-FOXNews911Remembered/Fox%20Rem3%20clip3.avi",
+        "International_Center_for_911_Studies_NIST_FOIA/Release_14_-_NIST_Cumulus_Video_Database/NIST Cumulus Video - Original Files - Complete Uncompressed Set/FOX News (9-11 Remembered)/Part 3/Fox Rem3 clip4.avi" => "https://archive.org/download/nsia-FOXNews911Remembered/Fox%20Rem3%20clip4.avi",
     };
 }

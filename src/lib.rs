@@ -2,9 +2,12 @@ pub mod db;
 pub mod error;
 pub mod release_data;
 
-use crate::db::{get_torrent_content, save_release_14_link, save_torrent, torrent_already_saved};
+use crate::db::{
+    get_torrent_content, save_release_14_file_link, save_release_14_link, save_torrent,
+    torrent_already_saved,
+};
 use crate::error::{Error, Result};
-use crate::release_data::{RELEASE_14_LINKS, RELEASE_DATA};
+use crate::release_data::{RELEASE_14_COLLECTION_LINKS, RELEASE_14_FILE_LINKS, RELEASE_DATA};
 use colored::*;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use lava_torrent::torrent::v1::Torrent;
@@ -322,6 +325,7 @@ impl Release {
             let name = item.2.to_string();
             let download_url = item.3.to_string();
             let release_id = Release::generate_id(&date, &name);
+            println!("Processing {name}...");
 
             let download_url = if !download_url.is_empty() {
                 let url = Url::parse(&download_url)?;
@@ -465,6 +469,7 @@ impl Release {
     pub async fn download_release_14_from_archive(
         &self,
         release_14_links: HashMap<PathBuf, String>,
+        release_14_file_links: HashMap<PathBuf, String>,
         base_target_path: &PathBuf,
     ) -> Result<()> {
         let tree = self.get_torrent_tree()?;
@@ -497,7 +502,12 @@ impl Release {
                 file_pb.set_position(0);
                 tokio::fs::create_dir_all(target_path.parent().unwrap()).await?;
 
-                let url = Self::get_release_14_url(&release_14_links, path.clone(), &file_name)?;
+                let url = Self::get_release_14_url(
+                    &release_14_links,
+                    &release_14_file_links,
+                    path.clone(),
+                    &file_name,
+                )?;
                 if url.is_none() {
                     continue;
                 }
@@ -819,9 +829,14 @@ impl Release {
 
     fn get_release_14_url(
         release_14_links: &HashMap<PathBuf, String>,
+        release_14_file_links: &HashMap<PathBuf, String>,
         path: PathBuf,
         file_name: &str,
     ) -> Result<Option<Url>> {
+        if let Some(link) = release_14_file_links.get(&path) {
+            let url = Url::parse(link)?;
+            return Ok(Some(url));
+        }
         let parent = path.parent().unwrap();
         if let Some(link) = release_14_links.get(parent) {
             let base_url = Url::parse(link)?;
@@ -993,7 +1008,7 @@ pub fn build_release_14_links(conn: &Connection, release: &Release) -> Result<()
         .iter()
         .map(|(p, _)| p.clone())
         .collect::<Vec<PathBuf>>();
-    for key in RELEASE_14_LINKS.keys() {
+    for key in RELEASE_14_COLLECTION_LINKS.keys() {
         let file_path = tree
             .iter()
             .find(|p| p.to_string_lossy().contains(key))
@@ -1009,11 +1024,20 @@ pub fn build_release_14_links(conn: &Connection, release: &Release) -> Result<()
             new_path.push(component);
         }
         new_path.push(key);
-        let base_url = RELEASE_14_LINKS.get(key).unwrap();
+        let base_url = RELEASE_14_COLLECTION_LINKS.get(key).unwrap();
         release_14_links.push((new_path, base_url.to_string()));
     }
     for (path, base_url) in release_14_links.iter() {
         save_release_14_link(conn, path, base_url.as_str())?;
+    }
+    Ok(())
+}
+
+pub fn build_release_14_file_links(conn: &Connection) -> Result<()> {
+    for key in RELEASE_14_FILE_LINKS.keys() {
+        let path = PathBuf::from(key);
+        let url = RELEASE_14_FILE_LINKS.get(key).unwrap();
+        save_release_14_file_link(conn, &path, url)?;
     }
     Ok(())
 }

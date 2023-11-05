@@ -3,8 +3,8 @@ use color_eyre::{eyre::eyre, Result};
 use dialoguer::Editor;
 use sept11_datasets::db::*;
 use sept11_datasets::{
-    build_release_14_links, bytes_to_human_readable, download_torrents, Release,
-    VerificationOutcome,
+    build_release_14_file_links, build_release_14_links, bytes_to_human_readable,
+    download_torrents, Release, VerificationOutcome,
 };
 use std::path::PathBuf;
 use tempdir::TempDir;
@@ -180,9 +180,14 @@ async fn main() -> Result<()> {
                 // Release 14 is a special case for which the data is scattered across different
                 // collections.
                 let release_14_links = get_release_14_links(&conn)?;
+                let release_14_file_links = get_release_14_file_links(&conn)?;
                 let _ = conn.close();
                 release
-                    .download_release_14_from_archive(release_14_links, &target_path)
+                    .download_release_14_from_archive(
+                        release_14_links,
+                        release_14_file_links,
+                        &target_path,
+                    )
                     .await?;
                 return Ok(());
             }
@@ -215,15 +220,24 @@ async fn main() -> Result<()> {
                 println!("Reinitialising release data...");
                 let mut releases = get_releases(&conn)?;
                 Release::reinit_releases(&mut releases)?;
+                let count = releases.len();
+                let mut i = 1;
                 for release in releases.iter() {
+                    println!("Saving release {} of {}", i, count);
                     save_release(&conn, &release)?;
+                    i += 1;
                 }
                 let _ = conn.close();
 
-                println!("Building release 14 links...");
+                println!("Building release 14 collection links...");
                 let conn = get_db_connection(&db_path)?;
                 let release_14 = get_release_by_id(&conn, RELEASE_14_UNCOMPRESSED_ID)?;
                 build_release_14_links(&conn, &release_14)?;
+                let _ = conn.close();
+
+                println!("Building release 14 file links...");
+                let conn = get_db_connection(&db_path)?;
+                build_release_14_file_links(&conn)?;
                 let _ = conn.close();
 
                 return Ok(());
@@ -254,6 +268,11 @@ async fn main() -> Result<()> {
             let conn = get_db_connection(&db_path)?;
             let release_14 = get_release_by_id(&conn, RELEASE_14_UNCOMPRESSED_ID)?;
             build_release_14_links(&conn, &release_14)?;
+            let _ = conn.close();
+
+            println!("Building release 14 file links...");
+            let conn = get_db_connection(&db_path)?;
+            build_release_14_file_links(&conn)?;
             let _ = conn.close();
 
             Ok(())
