@@ -179,8 +179,8 @@ impl Release {
             Some(VerificationOutcome::Complete) => {
                 println!("Status: {}", "COMPLETE".bright_green());
                 println!(
-                    "All files are present, but hashes don't match, or there was no torrent to \
-                        compare the release with.",
+                    "All significant files are present and sizes match. Some small files could be \
+                     missing, which means full verification could not take place.",
                 );
             }
             Some(VerificationOutcome::Incomplete(missing_files, corrupt_files)) => {
@@ -675,6 +675,23 @@ impl Release {
         if missing_files.len() == files.len() {
             return Ok(VerificationOutcome::AllFilesMissing);
         } else if !missing_files.is_empty() || !size_mismatches.is_empty() {
+            let missing_are_trivial = missing_files.iter().all(|m| {
+                let file_name = m.0.file_name().unwrap().to_string_lossy();
+                if file_name == "Thumbs.db" {
+                    return true;
+                }
+                false
+            });
+            let size_mismatches_are_trivial = size_mismatches.iter().all(|m| {
+                let file_name = m.0.file_name().unwrap().to_string_lossy();
+                if file_name == "Thumbs.db" {
+                    return true;
+                }
+                false
+            });
+            if missing_are_trivial && size_mismatches_are_trivial {
+                return Ok(VerificationOutcome::Complete);
+            }
             return Ok(VerificationOutcome::Incomplete(
                 missing_files,
                 size_mismatches,
