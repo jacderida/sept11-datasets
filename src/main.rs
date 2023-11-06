@@ -382,14 +382,45 @@ async fn main() -> Result<()> {
             } else {
                 let releases = get_releases(&conn)?;
                 Release::print_status_table(&releases)?;
-                let bytes_remaining: u64 = releases
+                let missing_bytes_remaining: u64 = releases
                     .iter()
                     .filter(|x| x.get_verification_outcome() == "MISSING")
                     .map(|x| x.size.unwrap_or(0))
                     .sum();
-                let human_readable_bytes_remaining =
-                    sept11_datasets::bytes_to_human_readable(bytes_remaining);
-                println!("{human_readable_bytes_remaining} still missing");
+                let incomplete_bytes_remaining: u64 = releases
+                    .iter()
+                    .filter(|x| x.get_verification_outcome() == "INCOMPLETE")
+                    .map(|x| {
+                        let size = if let Some(outcome) = &x.verification_outcome {
+                            match outcome {
+                                VerificationOutcome::Incomplete(missing, size_mismatch) => {
+                                    let missing_size: u64 = missing.iter().map(|x| x.1).sum();
+                                    let mismatch_size: u64 =
+                                        size_mismatch.iter().map(|x| x.1).sum();
+                                    missing_size + mismatch_size
+                                }
+                                _ => 0,
+                            }
+                        } else {
+                            0
+                        };
+                        size
+                    })
+                    .sum();
+                if missing_bytes_remaining > 0 || incomplete_bytes_remaining > 0 {
+                    println!(
+                        "Missing: {}",
+                        sept11_datasets::bytes_to_human_readable(missing_bytes_remaining)
+                    );
+                    println!(
+                        "Incomplete/Corrupt: {}",
+                        sept11_datasets::bytes_to_human_readable(incomplete_bytes_remaining)
+                    );
+                    let total_bytes_missing = missing_bytes_remaining + incomplete_bytes_remaining;
+                    let human_readable_bytes_remaining =
+                        sept11_datasets::bytes_to_human_readable(total_bytes_missing);
+                    println!("Total: {human_readable_bytes_remaining} still missing");
+                }
             }
             Ok(())
         }
