@@ -3,13 +3,14 @@ use color_eyre::{eyre::eyre, Result};
 use dialoguer::Editor;
 use sept11_datasets::db::*;
 use sept11_datasets::{
-    build_release_14_file_links, build_release_14_links, bytes_to_human_readable,
-    download_torrents, Release, VerificationOutcome,
+    build_partial_release_11_from_nist_202, build_release_14_file_links, build_release_14_links,
+    bytes_to_human_readable, download_torrents, Release, VerificationOutcome,
 };
 use std::path::PathBuf;
 use tempdir::TempDir;
 
 const RELEASE_14_UNCOMPRESSED_ID: &str = "968d5cdf934f01bb9efcf631c999fde5a617f4a9";
+const RELEASE_11_ID: &str = "8bf4862b4238c79fc6aa039dab0b5b3a1915af64";
 
 #[derive(Parser, Debug)]
 #[clap(name = "sept11-datasets", version = env!("CARGO_PKG_VERSION"))]
@@ -20,7 +21,21 @@ struct Opt {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Copy release 11 files from the NIST 10 202 release.
+    ///
+    /// Many files that were in the NIST FOIA 10 202 are duplicates of what was in release 11.
+    /// However, not all of the files are present.
+    ///
+    /// This command can copy the files from NIST FOIA 10 202 to NIST FOIA Release 11 to get a
+    /// mostly complete release 11.
+    #[clap(name = "build-partial-release-11", verbatim_doc_comment)]
+    BuildPartialRelease11 {
+        /// Path to the directory containing the files for the release
+        #[arg(long, env = "DATASETS_PATH")]
+        target_path: PathBuf,
+    },
     /// Check all files are present and the sizes match those in the torrent
+    #[clap(name = "check")]
     Check {
         /// The ID of the release to download
         #[arg(long)]
@@ -140,6 +155,14 @@ async fn main() -> Result<()> {
 
     let opt = Opt::parse();
     match opt.command {
+        Some(Commands::BuildPartialRelease11 { target_path }) => {
+            let db_path = get_database_path()?;
+            let conn = get_db_connection(&db_path)?;
+            let release11 = get_release_by_id(&conn, &RELEASE_11_ID)?;
+            let _ = conn.close();
+            build_partial_release_11_from_nist_202(&release11, &target_path)?;
+            Ok(())
+        }
         Some(Commands::Check { id, target_path }) => {
             let db_path = get_database_path()?;
             let conn = get_db_connection(&db_path)?;

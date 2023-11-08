@@ -7,7 +7,10 @@ use crate::db::{
     torrent_already_saved,
 };
 use crate::error::{Error, Result};
-use crate::release_data::{RELEASE_14_COLLECTION_LINKS, RELEASE_14_FILE_LINKS, RELEASE_DATA};
+use crate::release_data::{
+    NIST_FOIA_10_202_RELEASE_11_MAP, RELEASE_14_COLLECTION_LINKS, RELEASE_14_FILE_LINKS,
+    RELEASE_DATA,
+};
 use colored::*;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use lava_torrent::torrent::v1::Torrent;
@@ -1055,6 +1058,32 @@ pub fn build_release_14_file_links(conn: &Connection) -> Result<()> {
         let path = PathBuf::from(key);
         let url = RELEASE_14_FILE_LINKS.get(key).unwrap();
         save_release_14_file_link(conn, &path, url)?;
+    }
+    Ok(())
+}
+
+pub fn build_partial_release_11_from_nist_202(
+    release11: &Release,
+    target_directory_path: &PathBuf,
+) -> Result<()> {
+    let release11_tree = release11.get_torrent_tree()?;
+    for (path, _) in release11_tree.iter() {
+        let full_path = target_directory_path.join(path.clone());
+        if !full_path.exists() {
+            if let Some(nist_202_release_path) =
+                NIST_FOIA_10_202_RELEASE_11_MAP.get(&*path.to_string_lossy())
+            {
+                let parent_dir_path = full_path.parent().unwrap();
+                std::fs::create_dir_all(parent_dir_path)?;
+                println!(
+                    "Copying {} to {}...",
+                    nist_202_release_path,
+                    full_path.to_string_lossy()
+                );
+                let full_nist_202_path = target_directory_path.join(nist_202_release_path);
+                std::fs::copy(full_nist_202_path, full_path)?;
+            }
+        }
     }
     Ok(())
 }
