@@ -26,3 +26,4 @@ tempdir = "0.3.7"
 thiserror = "1.0.23"
 tokio = { version = "1.26", features = ["full"] }
 url = "2.4.1"
+zip = "0.6.6"

@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use color_eyre::{eyre::eyre, Result};
 use dialoguer::Editor;
 use sept11_datasets::db::*;
+use sept11_datasets::error::Error;
 use sept11_datasets::{
     build_partial_release_11_from_nist_202, build_release_14_file_links, build_release_14_links,
     bytes_to_human_readable, download_torrents, Release, VerificationOutcome,
@@ -221,9 +222,19 @@ async fn main() -> Result<()> {
             } else {
                 return Err(eyre!("This release does not have a download URL"));
             };
-            release
-                .download_release_from_archive(&url, &target_path)
-                .await?;
+            let filename = url
+                .path_segments()
+                .and_then(|s| s.last())
+                .ok_or_else(|| Error::FilenameFromUrlError)?;
+            if PathBuf::from(filename).extension().unwrap() == "zip" {
+                release
+                    .download_zip_release_from_archive(&url, &target_path)
+                    .await?;
+            } else {
+                release
+                    .download_release_from_archive(&url, &target_path)
+                    .await?;
+            }
             Ok(())
         }
         Some(Commands::Init {}) => {

@@ -11,6 +11,8 @@ pub enum Error {
     ArchiveDownloadFailed(u16),
     #[error("Could not obtain the user's data directory")]
     CouldNotObtainDataDirectory,
+    #[error("Could not obtain file name from URL")]
+    FilenameFromUrlError,
     #[error("Path {0} is not a valid path in the torrent tree")]
     MarkIncompleteInvalidPath(String),
     #[error("To mark a release incomplete either missing or corrupt files must be supplied")]
@@ -23,6 +25,8 @@ pub enum Error {
     MalformedReleaseTable,
     #[error("Cannot parse path segments from torrent URL")]
     PathSegmentsParseError,
+    #[error("This release is not distributed in a zip")]
+    ReleaseNotZipError,
     #[error("Failed to download file in release: {0}")]
     ReleaseDownloadError(String),
     #[error("The top level directory for the release could not be obtained")]
@@ -41,4 +45,6 @@ pub enum Error {
     UrlParseError(#[from] url::ParseError),
     #[error("Verification report error: {0}")]
     VerificationReportError(String),
+    #[error(transparent)]
+    ZipError(#[from] zip::result::ZipError),
 }

@@ -22,10 +22,12 @@ use std::fmt;
 use std::fs::File;
 use std::io::{BufRead, Read, Seek};
 use std::path::{Component, Path, PathBuf};
+use tempdir::TempDir;
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::time::{sleep, Duration};
 use url::Url;
+use zip::ZipArchive;
 
 const WRAP_LENGTH: usize = 72;
 
@@ -546,6 +548,100 @@ impl Release {
             total_pb.inc(1);
         }
         total_pb.finish_with_message("Downloaded all files in the torrent tree");
+        Ok(())
+    }
+
+    pub async fn download_zip_release_from_archive(
+        &self,
+        zip_url: &Url,
+        target_path: &PathBuf,
+    ) -> Result<()> {
+        let file_pb = ProgressBar::new(0);
+        file_pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{prefix:.bold.dim} [{bar:30.green/blue}] {bytes}/{total_bytes} {bytes_per_sec}")?
+                .progress_chars("=> "),
+        );
+
+        let temp_dir = TempDir::new("sept11dataset")?;
+        let mut zip_dest_path = temp_dir.path().to_path_buf();
+        let filename = zip_url
+            .path_segments()
+            .and_then(|s| s.last())
+            .ok_or_else(|| Error::FilenameFromUrlError)?;
+        if PathBuf::from(filename).extension().unwrap() != "zip" {
+            return Err(Error::ReleaseNotZipError);
+        }
+        zip_dest_path.push(filename);
+
+        println!(
+            "Downloading {} to {}...",
+            zip_url.to_string(),
+            zip_dest_path.to_string_lossy()
+        );
+        let mut retries = 10;
+        loop {
+            match download_file(&zip_url, &zip_dest_path, &file_pb).await {
+                Ok(_) => {
+                    file_pb.finish_with_message("Download completed");
+                    break;
+                }
+                Err(e) => match e {
+                    Error::ArchiveFileNotFoundError(_) => {
+                        file_pb.abandon_with_message("Download failed. File not found.");
+                        break;
+                    }
+                    _ => {
+                        retries -= 1;
+                        if retries == 0 {
+                            file_pb.abandon_with_message("Download failed after 10 retries");
+                            return Err(e.into());
+                        }
+                        file_pb.abandon_with_message("Download failed. Will retry in 5 seconds.");
+                        sleep(Duration::from_secs(5)).await;
+                    }
+                },
+            }
+        }
+
+        println!(
+            "Extracting {} to {}...",
+            filename,
+            target_path.to_string_lossy()
+        );
+        let file = File::open(zip_dest_path)?;
+        let mut archive = ZipArchive::new(file)?;
+        let total_files = archive.len();
+
+        let extract_pb = ProgressBar::new(total_files as u64);
+        extract_pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{prefix:.bold.dim} [{bar:30.cyan/blue}] {pos}/{len} files")?
+                .progress_chars("##-"),
+        );
+
+        for i in 0..total_files {
+            let mut file = archive.by_index(i)?;
+            let outpath = match file.enclosed_name() {
+                Some(path) => path.to_owned(),
+                None => continue,
+            };
+
+            if (&*file.name()).ends_with('/') {
+                std::fs::create_dir_all(target_path.join(&outpath))?;
+            } else {
+                if let Some(p) = outpath.parent() {
+                    if !p.exists() {
+                        std::fs::create_dir_all(target_path.join(p))?;
+                    }
+                }
+                let mut outfile = File::create(target_path.join(&outpath))?;
+                std::io::copy(&mut file, &mut outfile)?;
+            }
+            extract_pb.inc(1);
+        }
+        extract_pb.finish_with_message("Extraction completed");
+
         Ok(())
     }
 

@@ -58,7 +58,9 @@ cargo run -- verify --id <release-id> --target-path <releases-directory>
 
 ## Downloading Releases
 
-Many releases are on the Archive, consisting of individual files with the same tree as the torrent. It's possible to download all the individual files with this tool. Use the following command:
+Most releases are on the Archive, and they come in three different forms. Either the entire thing is in a zip, the directory tree for the torrent is represented in a collection, or there is one special release, namely `NIST FOIA 09-42 - ic911studies.org - Release 14`, which is scattered across many collections. All the links to these are encoded in the static data in the binary.
+
+There is a `download-release` command that handles each of the three:
 ```
 cargo run -- download-release \
   --id 34f28513edfaa80a46bd627195f8ea4ae573d914 \
@@ -70,7 +72,7 @@ This is a basic downloading mechanism. It's slow, for two reasons:
 1. Each file in the release is downloaded individually and sequentially. So a new connection is opened/closed for each item, and only one at a time. It would be possible to use, say, 100 concurrent connections, but I don't want to abuse the archive service.
 2. The archive itself can be slow, depending on which mirror you get redirected to.
 
-Anyway, this is a process that really doesn't require speed; for larger releases, just leave it running for a few days. It uses retries and resuming.
+Anyway, this is a process that really doesn't require speed; for larger releases, just leave it running for a few days. It uses retries and resuming. In the case of release 14, it will more likely take weeks to obtain all the content.
 
 After the release has been downloaded, verify it:
 ```
@@ -78,104 +80,3 @@ cargo run -- verify \
   --id 34f28513edfaa80a46bd627195f8ea4ae573d914 \
   --target-path /mnt/sept11-archive/9-11-archive/911datasets.org
 ```
-
-## Useful Links
-
-The archived 911datasets.org: [link](https://web.archive.org/web/20190111000139/http://911datasets.org/index.php/Main_Page). Still useful for browsing and obtaining the torrent content.
-
-[A Danish site](https://www.911facts.dk/?page_id=9268&lang=en) that invites you to contact them if you need a release. Looks like a dubious 'truther' thing, but perhaps it could potentially be useful for obtaining missing stuff.
-
-The majority of the releases that are not in the NIST 09 series are here: [link](https://archive.org/download/911datasets)
-
-[NIST FOIA 12-179 Jul 12 2012](https://archive.org/download/NIST_FOIA_12-179_Jul_12_2012)
-
-### The 42 NIST FOIA 09 Series Releases
-
-These 42 releases were among lots of other material made available by NIST, but for some reason just
-these ones were labelled from 1 to 42.
-
-Release 11 is missing and some others are incomplete. The uncompressed release 14 is a special case that is scattered around various different places; most of the content is there, but sadly, a small amount is missing.
-
-[NIST FOIA 09-42 - ic911studies.org - Release 01](https://archive.org/download/NIST_9-11_Release_01)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 02](https://archive.org/download/NIST_9-11_Release_02)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 03](https://archive.org/download/NIST_9-11_Release_03)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 04](https://archive.org/download/NIST_9-11_Release_04)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 05](https://archive.org/download/NIST_9-11_Release_05)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 06](https://archive.org/download/NIST_9-11_Release_06)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 07](https://archive.org/download/NIST_9-11_Release_07)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 08](https://archive.org/download/NIST_9-11_Release_08)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 09](https://archive.org/download/NIST_9-11_Release_09)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 10](https://archive.org/download/NIST_9-11_Release_10)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 12](https://archive.org/download/NIST_9-11_Release_12)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 13](https://archive.org/download/NIST_9-11_Release_13)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 14 - x.264 Compressed](https://archive.org/download/NIST_9-11_Release_14_-_NIST_Cumulus_Video_Database)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 15](https://archive.org/download/NIST_9-11_Release_15_Uncompressed)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 15 - x.264 Compressed](https://archive.org/download/NIST_9-11_Release_15_-_NIST_Burn_Video_Database)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 16](https://archive.org/download/NIST_9-11_Release_16)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 17](https://archive.org/download/NIST_9-11_Release_17)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 18](https://archive.org/download/NIST_9-11_Release_18)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 19](https://archive.org/download/NIST_9-11_Release_19)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 20](https://archive.org/download/NIST_9-11_Release_20)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 21](https://archive.org/download/NIST_9-11_Release_21)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 22](https://archive.org/download/NIST_9-11_Release_22)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 23](https://archive.org/download/NIST_9-11_Release_23)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 24](https://archive.org/download/NIST_9-11_Release_24)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 25](https://archive.org/download/NIST_9-11_Release_25)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 26](https://archive.org/download/NIST_9-11_Release_26)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 27](https://archive.org/download/NIST_9-11_Release_27)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 28](https://archive.org/download/NIST_9-11_Release_28)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 29](https://archive.org/download/NIST_9-11_Release_29)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 30](https://archive.org/download/NIST_9-11_Release_30)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 31](https://archive.org/download/NIST_9-11_Release_31)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 32](https://archive.org/download/NIST_9-11_Release_32)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 33](https://archive.org/download/NIST_9-11_Release_33)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 34](https://archive.org/download/NIST_9-11_Release_34)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 35](https://archive.org/download/NIST_9-11_Release_35)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 36](https://archive.org/download/NIST_9-11_Release_36)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 37](https://archive.org/download/NIST_9-11_Release_37)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 38](https://archive.org/download/NIST_9-11_Release_38)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 39](https://archive.org/download/NIST_9-11_Release_39)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 40](https://archive.org/download/NIST_9-11_Release_40)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 41](https://archive.org/download/NIST_9-11_Release_41)
-
-[NIST FOIA 09-42 - ic911studies.org - Release 42](https://archive.org/download/NIST_9-11_Release_42)
