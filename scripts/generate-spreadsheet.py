@@ -65,7 +65,9 @@ class Release14LinksData:
 
 
 def get_db_path():
-    if "HOME" in os.environ:
+    if "DATASETS_DB_PATH" in os.environ:
+        return os.environ["DATASETS_DB_PATH"]
+    elif "HOME" in os.environ:
         app_data_path = os.path.join(os.environ["HOME"], ".local", "share", "sept11-datasets")
     else:
         raise Exception("Could not find home directory")
@@ -243,6 +245,8 @@ def build_releases_sheet(workbook, releases):
             sheet[f"F{row_num}"] = "N/A"
         
         if release.verification_outcome == "VERIFIED":
+            sheet.cell(row=row_num, column=5).fill = lime_fill
+        elif release.verification_outcome == "COMPLETE":
             sheet.cell(row=row_num, column=5).fill = lime_fill
         elif release.verification_outcome == "MISSING":
             sheet.cell(row=row_num, column=5).fill = red_fill
