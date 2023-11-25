@@ -29,6 +29,10 @@ to the piece hash in the torrent. If all the hashes match, you know the content 
 
 ## Setup
 
+Either obtain a binary from the release, or work from source using `cargo`. For all the commands
+described here, `cargo run` can be replaced with `sept11-datasets` (or `sept11-datasets.exe` on
+Windows) if you're using a binary.
+
 There is [static data](src/release_data.rs) in the binary that gets used to initialise a SQLite
 database with the release data. The torrents are downloaded and stored in the database.
 
@@ -58,7 +62,10 @@ cargo run -- verify --id <release-id> --target-path <releases-directory>
 
 ## Downloading Releases
 
-Most releases are on the Archive, and they come in three different forms. Either the entire thing is in a zip, the directory tree for the torrent is represented in a collection, or there is one special release, namely `NIST FOIA 09-42 - ic911studies.org - Release 14`, which is scattered across many collections. All the links to these are encoded in the static data in the binary.
+Most releases are on the Archive, and they come in three different forms. Either the entire thing is
+in a zip, the directory tree for the torrent is represented in a collection, or there is one special
+release, namely `NIST FOIA 09-42 - ic911studies.org - Release 14`, which is scattered across many
+collections. All the links to these are encoded in the static data in the binary.
 
 There is a `download-release` command that handles each of the three:
 ```
